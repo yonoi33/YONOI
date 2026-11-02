@@ -1,0 +1,1751 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ORRERY — Planet Orgel</title>
+<style>
+  :root{
+    --bg0:#040610; --bg1:#0a1020;
+    --ink:#e8f1ff; --dim:#5f7291;
+    --glow:#6fd6ff; --accent:#ffb45e; --sun:#ffd9a0;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;background:radial-gradient(ellipse 120% 90% at 50% 115%, var(--bg1) 0%, var(--bg0) 60%)}
+  body{font-family:"Avenir Next","Helvetica Neue","Hiragino Kaku Gothic ProN",sans-serif;color:var(--ink)}
+  #scene{position:fixed;inset:0;cursor:grab}
+  #scene.dragging{cursor:grabbing}
+
+  .hud{position:fixed;pointer-events:none;z-index:10}
+  .hud-top{top:38px;left:44px}
+  .eyebrow{font-size:10px;letter-spacing:.42em;color:var(--dim);text-transform:uppercase;margin-bottom:10px}
+  h1{font-size:clamp(34px,5vw,58px);font-weight:200;letter-spacing:.28em;line-height:1}
+  h1 span{color:var(--sun);font-weight:400}
+  .sub{margin-top:12px;font-size:12px;letter-spacing:.18em;color:var(--dim)}
+
+  .hud-bottom{bottom:36px;left:44px;right:44px;display:flex;justify-content:space-between;align-items:flex-end}
+  .stat{font-size:11px;letter-spacing:.14em;color:var(--dim)}
+  .stat b{display:block;font-size:18px;font-weight:300;color:var(--ink);letter-spacing:.1em;margin-bottom:4px}
+  .stat b em{font-style:normal;color:var(--glow)}
+  .hint{font-size:10px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase;text-align:right}
+  .hint::before{content:"";display:inline-block;width:26px;height:1px;background:var(--dim);vertical-align:middle;margin-right:12px;opacity:.6}
+
+  .planet-label{
+    position:fixed;z-index:5;white-space:nowrap;cursor:pointer;pointer-events:auto;
+    font-size:9px;letter-spacing:.34em;color:var(--dim);text-transform:uppercase;
+    transform:translate(-50%,-100%);opacity:0;transition:opacity .4s,color .2s;
+    padding:6px 8px; /* タップ領域を確保 */
+  }
+  .planet-label:hover{color:var(--glow)}
+  #leaderSvg{position:fixed;inset:0;z-index:4;pointer-events:none;width:100%;height:100%}
+  #leaderSvg line{stroke:#3a5578;stroke-width:1;opacity:.45}
+
+  .marker-label{
+    position:fixed;z-index:6;pointer-events:none;white-space:nowrap;
+    font-size:10px;letter-spacing:.32em;color:var(--accent);text-transform:uppercase;
+    transform:translate(14px,-50%);opacity:0;transition:opacity .4s;
+  }
+  .marker-label::before{content:"";display:inline-block;width:18px;height:1px;background:var(--accent);vertical-align:middle;margin-right:8px}
+  .marker-label small{display:block;margin-left:26px;margin-top:3px;font-size:9px;letter-spacing:.18em;color:var(--glow)}
+
+  #backBtn{
+    position:fixed;top:38px;right:44px;z-index:20;
+    background:rgba(10,20,40,.55);backdrop-filter:blur(8px);
+    border:1px solid rgba(111,214,255,.3);border-radius:2px;
+    color:var(--glow);font:inherit;font-size:10px;letter-spacing:.3em;text-transform:uppercase;
+    padding:10px 18px;cursor:pointer;opacity:0;pointer-events:none;transition:opacity .5s;
+  }
+  #backBtn.show{opacity:1;pointer-events:auto}
+  #backBtn:hover{border-color:rgba(111,214,255,.7)}
+
+  #cityBox{
+    position:fixed;top:92px;right:44px;z-index:20;width:min(280px,calc(100vw - 88px));
+    text-align:right;opacity:0;pointer-events:none;transition:opacity .5s;
+  }
+  #cityBox.show{opacity:1;pointer-events:auto}
+  #marsBox{
+    position:fixed;top:92px;right:44px;z-index:20;text-align:right;
+    opacity:0;pointer-events:none;transition:opacity .5s;
+  }
+  #marsBox.show{opacity:1;pointer-events:auto}
+  @media (max-width:640px){#marsBox{top:78px;right:24px}}
+  #cityBox input{
+    width:100%;padding:9px 13px;background:rgba(10,20,40,.55);backdrop-filter:blur(8px);
+    border:1px solid rgba(111,214,255,.25);border-radius:2px;color:var(--ink);
+    font:inherit;font-size:11px;letter-spacing:.08em;outline:none;
+  }
+  #cityBox input:focus{border-color:rgba(111,214,255,.7)}
+  #cityBox input::placeholder{color:var(--dim)}
+  .chips{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:10px;letter-spacing:.12em;color:var(--accent);
+    border:1px solid rgba(255,180,94,.35);border-radius:2px;padding:4px 8px;background:rgba(255,180,94,.06);cursor:pointer}
+  .chip b{font-weight:400;color:var(--glow)}
+  .chip::after{content:"×";color:var(--dim)}
+  .msg{margin-top:6px;font-size:9px;letter-spacing:.12em;color:var(--dim);min-height:12px}
+
+  .toggle{display:inline-flex;align-items:center;gap:10px;cursor:pointer;margin-top:4px;user-select:none}
+  .toggle input{display:none}
+  .toggle .track{
+    width:34px;height:18px;border-radius:9px;position:relative;
+    background:rgba(95,114,145,.35);border:1px solid rgba(111,214,255,.2);
+    transition:background .25s,border-color .25s;
+  }
+  .toggle .knob{
+    position:absolute;top:2px;left:2px;width:12px;height:12px;border-radius:50%;
+    background:var(--dim);transition:transform .25s,background .25s;
+  }
+  .toggle input:checked + .track{background:rgba(111,214,255,.25);border-color:rgba(111,214,255,.6)}
+  .toggle input:checked + .track .knob{transform:translateX(16px);background:var(--glow);box-shadow:0 0 8px rgba(111,214,255,.8)}
+  .toggle-label{font-size:10px;letter-spacing:.3em;color:var(--dim);text-transform:uppercase}
+  .toggle input:checked ~ .toggle-label{color:var(--glow)}
+
+  #langSel{
+    position:fixed;bottom:66px;right:44px;z-index:20;
+    background:rgba(10,20,40,.55);backdrop-filter:blur(8px);
+    border:1px solid rgba(111,214,255,.25);border-radius:2px;
+    color:var(--dim);font:inherit;font-size:10px;letter-spacing:.14em;
+    padding:6px 10px;outline:none;cursor:pointer;
+  }
+  #langSel:hover,#langSel:focus{border-color:rgba(111,214,255,.6);color:var(--ink)}
+  #langSel option{background:#0a1224;color:var(--ink)}
+  @media (max-width:640px){#langSel{bottom:24px;right:24px}}
+
+  .fade-in{animation:fadeUp 1.4s cubic-bezier(.2,.7,.2,1) both}
+  .fade-in.d1{animation-delay:.15s}.fade-in.d2{animation-delay:.35s}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  @media (max-width:640px){
+    .hud-top{top:26px;left:24px}
+    .hud-bottom{left:24px;right:24px;bottom:24px}
+    #backBtn{top:26px;right:24px}
+    #cityBox{top:78px;right:24px}
+    .hint{display:none}
+  }
+</style>
+<style>
+/* ============ Planet Orgel（観測型アドオン）============ */
+  .hud-bottom{bottom:112px}
+  #langSel{bottom:142px}
+  @media (max-width:640px){
+    .hud-bottom{bottom:92px}
+    #langSel{bottom:92px}
+  }
+
+  #orgel{
+    position:fixed;top:176px;left:44px;z-index:20;width:244px;
+    background:rgba(10,20,40,.55);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+    border:1px solid rgba(111,214,255,.22);border-radius:2px;
+    color:var(--dim);font-size:10px;letter-spacing:.14em;
+    transition:opacity .5s;
+  }
+  .og-head{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;
+    background:none;border:0;color:var(--glow);font:inherit;font-size:10px;letter-spacing:.32em;
+    text-transform:uppercase;padding:11px 14px;cursor:pointer;text-align:left;
+  }
+  .og-head .og-caret{color:var(--dim);transition:transform .3s;letter-spacing:0}
+  #orgel.collapsed .og-caret{transform:rotate(-90deg)}
+  #orgel.collapsed .og-body{display:none}
+  .og-body{padding:0 14px 13px;display:flex;flex-direction:column;gap:10px}
+  .og-hint{color:var(--accent);letter-spacing:.12em;font-size:9px;margin-top:-4px}
+  .og-hint:empty{display:none}
+
+  .og-seg{display:flex;border:1px solid rgba(111,214,255,.25);border-radius:2px;overflow:hidden}
+  .og-seg button{
+    flex:1;background:transparent;color:var(--dim);font:inherit;font-size:9.5px;letter-spacing:.12em;
+    padding:7px 6px;border:0;cursor:pointer;transition:background .25s,color .25s;
+  }
+  .og-seg button+button{border-left:1px solid rgba(111,214,255,.18)}
+  .og-seg button.on{background:rgba(111,214,255,.16);color:var(--glow);box-shadow:inset 0 0 10px rgba(111,214,255,.12)}
+  .og-note{font-size:9px;letter-spacing:.1em;color:var(--dim);margin-top:-4px;line-height:1.5}
+
+  .og-legend{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:3px 10px}
+  .og-legend li{display:flex;align-items:center;gap:6px;font-size:9px;letter-spacing:.1em;white-space:nowrap;
+    padding:2px 3px;border-radius:2px;transition:background .6s,color .6s}
+  .og-legend li i{width:6px;height:6px;border-radius:50%;flex:none;box-shadow:0 0 6px currentColor}
+  .og-legend li b{font-weight:400;color:var(--ink);margin-left:auto;font-variant-numeric:tabular-nums}
+  .og-legend li em{font-style:normal;font-size:7.5px;color:var(--accent);letter-spacing:.14em}
+  .og-legend li.hit{background:rgba(111,214,255,.18);color:var(--glow);transition:none}
+
+  .og-row{display:flex;align-items:center;gap:10px}
+  .og-lbl{text-transform:uppercase;letter-spacing:.3em;font-size:9.5px;flex:none}
+  #ogVol{flex:1;accent-color:#6fd6ff;height:2px;cursor:pointer}
+  .og-btns{gap:8px}
+  .og-btn{
+    flex:1;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    background:rgba(10,20,40,.55);border:1px solid rgba(111,214,255,.25);border-radius:2px;
+    color:var(--dim);font:inherit;font-size:9.5px;letter-spacing:.16em;padding:8px 6px;cursor:pointer;
+    transition:border-color .25s,color .25s;font-variant-numeric:tabular-nums;
+  }
+  .og-btn:hover{border-color:rgba(111,214,255,.6);color:var(--ink)}
+  .og-btn.on{border-color:rgba(111,214,255,.7);color:var(--glow)}
+  .og-btn .og-dot{width:7px;height:7px;border-radius:50%;background:var(--dim);transition:background .25s}
+  #ogRec.on{border-color:rgba(255,120,110,.7);color:#ffb0a8}
+  #ogRec.on .og-dot{background:#ff6f62;box-shadow:0 0 8px #ff6f62;animation:ogBlink 1.2s infinite}
+  @keyframes ogBlink{50%{opacity:.25}}
+  .og-msg{font-size:9px;letter-spacing:.1em;color:var(--dim);min-height:11px;margin-top:-4px}
+  .og-msg:empty{display:none}
+
+  #ogAlign{
+    position:fixed;left:50%;top:22%;transform:translate(-50%,0);z-index:15;pointer-events:none;
+    text-align:center;opacity:0;
+  }
+  #ogAlign b{display:block;font-weight:200;font-size:clamp(22px,3.4vw,38px);letter-spacing:.6em;padding-left:.6em;
+    color:var(--glow);text-shadow:0 0 18px rgba(111,214,255,.8),0 0 42px rgba(111,214,255,.35);text-transform:uppercase}
+  #ogAlign small{display:block;margin-top:10px;font-size:10px;letter-spacing:.22em;color:var(--ink);opacity:.8}
+  #ogAlign.show{animation:ogAlign 5.5s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes ogAlign{0%{opacity:0;transform:translate(-50%,10px)}12%{opacity:1;transform:translate(-50%,0)}70%{opacity:1}100%{opacity:0;transform:translate(-50%,-6px)}}
+
+  #ogRoll{position:fixed;left:0;right:0;bottom:0;width:100%;height:88px;z-index:3;pointer-events:none}
+
+  @media (max-width:640px){
+    #orgel{top:150px;left:24px;width:min(244px,calc(100vw - 48px))}
+    body.og-focus #orgel{opacity:0;pointer-events:none}
+    #ogRoll{height:76px}
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<svg id="leaderSvg"></svg>
+
+<div class="hud hud-top">
+  <div class="eyebrow fade-in" id="eyebrow">Planetary System Viewer / 太陽系儀</div>
+  <h1 class="fade-in d1">ORRE<span>RY</span></h1>
+  <div class="sub fade-in d2" id="subline">惑星名をクリックすると近づけます — 地球には都市が眠っています</div>
+</div>
+
+<div class="hud hud-bottom">
+  <div class="stat fade-in d2"><b id="focusReadout"><em>SOLAR SYSTEM</em></b><span id="viewCaption">現在の視点</span></div>
+  <div class="hint fade-in d2" id="hint">Drag to orbit · Scroll to zoom · Click a planet</div>
+</div>
+
+<select id="langSel" class="fade-in d2">
+  <option value="ja" selected>日本語</option>
+  <option value="en">English</option>
+  <option value="zh">简体中文</option>
+  <option value="tw">繁體中文</option>
+  <option value="ko">한국어</option>
+  <option value="es">Español</option>
+  <option value="fr">Français</option>
+  <option value="de">Deutsch</option>
+  <option value="it">Italiano</option>
+  <option value="pt">Português</option>
+  <option value="ru">Русский</option>
+  <option value="ar">العربية</option>
+  <option value="hi">हिन्दी</option>
+</select>
+
+<button id="backBtn">← Solar System</button>
+<div id="cityBox">
+  <input id="cityInput" type="text" placeholder="地名を追加（例: 大阪 / paris / 35.6,139.7）" autocomplete="off" spellcheck="false">
+  <div class="chips" id="chips"></div>
+  <div class="msg" id="msg"></div>
+  <label class="toggle">
+    <input type="checkbox" id="satToggle" checked>
+    <span class="track"><span class="knob"></span></span>
+    <span class="toggle-label">Starlink</span>
+  </label>
+</div>
+
+<div id="marsBox">
+  <label class="toggle">
+    <input type="checkbox" id="missionToggle">
+    <span class="track"><span class="knob"></span></span>
+    <span class="toggle-label">Colonization</span>
+  </label>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ============ shared textures ============ */
+function dotTexture(inner,outer){
+  const c=document.createElement('canvas'); c.width=c.height=64;
+  const g=c.getContext('2d');
+  const grd=g.createRadialGradient(32,32,0,32,32,32);
+  grd.addColorStop(0,inner); grd.addColorStop(.55,inner); grd.addColorStop(1,outer);
+  g.fillStyle=grd; g.beginPath(); g.arc(32,32,32,0,Math.PI*2); g.fill();
+  return new THREE.CanvasTexture(c);
+}
+function glowTexture(color,alpha){
+  const c=document.createElement('canvas'); c.width=c.height=1024;
+  const g=c.getContext('2d');
+  const grd=g.createRadialGradient(512,512,60,512,512,512);
+  // 二次関数的な多段ストップでバンディングを防ぐ
+  for(let i=0;i<=20;i++){
+    const t=i/20;
+    grd.addColorStop(t, color.replace('A', (alpha*Math.pow(1-t,2.2)).toFixed(4)));
+  }
+  g.fillStyle=grd; g.fillRect(0,0,1024,1024);
+  return new THREE.CanvasTexture(c);
+}
+const softDot=dotTexture('rgba(255,255,255,1)','rgba(255,255,255,0)');
+
+/* ============ continents (equirect polygons) ============ */
+const POLYS=[
+[[-168,66],[-140,70],[-125,71],[-110,73],[-95,72],[-85,69],[-80,62],[-70,60],[-60,50],[-65,45],[-70,42],[-75,38],[-80,32],[-81,26],[-84,30],[-90,29],[-97,26],[-97,22],[-105,20],[-105,16],[-95,15],[-90,13],[-85,10],[-80,8],[-83,9],[-88,16],[-97,16],[-110,23],[-117,33],[-124,40],[-124,48],[-135,58],[-150,60],[-165,60]],
+[[-45,60],[-42,62],[-30,68],[-22,70],[-20,76],[-30,83],[-55,83],[-60,76],[-55,70],[-52,64]],
+[[-80,8],[-75,10],[-70,12],[-62,10],[-52,5],[-45,-2],[-38,-6],[-35,-9],[-39,-15],[-41,-22],[-48,-28],[-53,-34],[-58,-39],[-65,-45],[-68,-52],[-72,-54],[-75,-48],[-73,-40],[-71,-30],[-70,-18],[-76,-14],[-81,-6],[-80,0]],
+[[-17,15],[-10,30],[0,32],[10,33],[20,32],[30,31],[33,29],[35,22],[40,15],[43,11],[51,12],[48,5],[42,-2],[40,-10],[36,-18],[33,-26],[27,-34],[20,-35],[15,-28],[12,-18],[9,-8],[9,0],[6,4],[-5,5],[-12,8]],
+[[-10,36],[-9,43],[-2,44],[0,49],[-5,48],[-1,60],[5,62],[10,65],[18,70],[25,71],[40,68],[60,70],[75,73],[90,76],[105,77],[120,73],[140,72],[160,70],[172,67],[179,64],[178,62],[160,60],[155,52],[142,48],[135,44],[130,42],[122,38],[120,32],[115,23],[109,18],[105,10],[103,2],[98,8],[95,16],[90,22],[87,21],[80,10],[77,8],[72,20],[68,24],[62,25],[58,20],[50,13],[43,12],[35,28],[27,37],[22,37],[15,38],[10,39],[3,37]],
+[[114,-22],[122,-17],[130,-12],[136,-12],[142,-11],[146,-15],[149,-20],[153,-27],[151,-33],[146,-39],[140,-38],[135,-35],[129,-32],[124,-33],[115,-34],[113,-26]],
+[[-180,-71],[180,-71],[180,-90],[-180,-90]],
+[[129,31],[132,33],[135,34],[138,35],[140,36],[141,39],[142,43],[144,44],[141,42],[139,38],[136,35],[132,33.5],[129,32]],
+[[-6,50],[0,52],[-1,55],[-4,58],[-8,57],[-10,53],[-6,50.5]],
+[[44,-16],[49,-13],[50,-16],[48,-22],[45,-25],[43,-21]],
+[[109,1],[114,5],[118,2],[116,-2],[111,-3]],
+[[95,5],[100,2],[105,-4],[103,-5],[97,1]],
+[[131,-1],[138,-2],[145,-5],[148,-9],[142,-8],[135,-4]],
+[[173,-35],[176,-38],[175,-41],[171,-44],[167,-46],[169,-43],[172,-40]],
+[[-22,64],[-15,66],[-14,64],[-20,63]]
+];
+const MW=720,MH=360;
+const mk=document.createElement('canvas'); mk.width=MW; mk.height=MH;
+const mc=mk.getContext('2d');
+mc.fillStyle='#000'; mc.fillRect(0,0,MW,MH); mc.fillStyle='#fff';
+const MX=lon=>(lon+180)/360*MW, MY=lat=>(90-lat)/180*MH;
+POLYS.forEach(p=>{mc.beginPath();p.forEach((pt,i)=>i?mc.lineTo(MX(pt[0]),MY(pt[1])):mc.moveTo(MX(pt[0]),MY(pt[1])));mc.closePath();mc.fill();});
+const md=mc.getImageData(0,0,MW,MH).data;
+const isLand=(lon,lat)=>{const x=Math.min(MW-1,Math.max(0,MX(lon)|0)),y=Math.min(MH-1,Math.max(0,MY(lat)|0));return md[(y*MW+x)*4]>127;};
+
+/* ============ scene ============ */
+const canvas=document.getElementById('scene');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(40,1,0.01,400);
+
+/* stars */
+(function(){
+  const pos=[],col=[];
+  for(let i=0;i<1400;i++){
+    const u=Math.random()*2-1, th=Math.random()*Math.PI*2;
+    const s=Math.sqrt(1-u*u), d=120+Math.random()*80;
+    pos.push(s*Math.cos(th)*d, u*d, s*Math.sin(th)*d);
+    const b=.25+Math.random()*.75; col.push(b,b,b*1.05);
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  scene.add(new THREE.Points(g,new THREE.PointsMaterial({size:.5,vertexColors:true,transparent:true,opacity:.8,map:softDot,depthWrite:false})));
+})();
+
+/* sun */
+const sun=new THREE.Group();
+sun.add(new THREE.Mesh(new THREE.SphereGeometry(2.2,48,48),new THREE.MeshBasicMaterial({color:0xffd9a0})));
+const sunGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture('rgba(255,200,130,A)',0.55),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+sunGlow.scale.set(16,16,1); sun.add(sunGlow);
+scene.add(sun);
+
+/* planets */
+const PLANETS=[
+ {name:'Mercury', jp:'水星',  r:.07, orbit:5,   period:.24,  color:0x9aa0a8},
+ {name:'Venus',   jp:'金星',  r:.12, orbit:7,   period:.62,  color:0xe8c99a},
+ {name:'Earth',   jp:'地球',  r:.22, orbit:9.5, period:1,    color:0x4fd8ff, isEarth:true},
+ {name:'Mars',    jp:'火星',  r:.09, orbit:12,  period:1.88, color:0xe07a5f},
+ {name:'Jupiter', jp:'木星',  r:.55, orbit:17,  period:11.9, color:0xd9a86b},
+ {name:'Saturn',  jp:'土星',  r:.46, orbit:22,  period:29.5, color:0xe6d3a3, ring:true},
+ {name:'Uranus',  jp:'天王星',r:.21, orbit:27,  period:84,   color:0x9fd8e0},
+ {name:'Neptune', jp:'海王星',r:.20, orbit:31,  period:165,  color:0x6f8fe8}
+];
+const K=0.12; // 公転速度係数（地球≈5分/周）
+let earthGroup=null;
+const RE=0.22;
+const orbitDotMat=new THREE.PointsMaterial({size:.06,color:0x2a4060,transparent:true,opacity:.7,map:softDot,depthWrite:false});
+
+PLANETS.forEach(p=>{
+  p.angle=Math.random()*Math.PI*2;
+  p.group=new THREE.Group();
+  scene.add(p.group);
+
+  // 軌道（点線リング）
+  const pts=[];
+  const n=Math.round(p.orbit*22);
+  for(let i=0;i<n;i++){const a=i/n*Math.PI*2;pts.push(p.orbit*Math.cos(a),0,p.orbit*Math.sin(a));}
+  const og=new THREE.BufferGeometry();
+  og.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+  scene.add(new THREE.Points(og,orbitDotMat));
+
+  if(p.isEarth){
+    buildEarth(p.group,p.r);
+  }else{
+    p.group.add(new THREE.Mesh(new THREE.SphereGeometry(p.r,32,32),new THREE.MeshBasicMaterial({color:p.color})));
+    const hex='rgba('+((p.color>>16)&255)+','+((p.color>>8)&255)+','+(p.color&255)+',A)';
+    const gl=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture(hex,0.5),transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+    gl.scale.set(p.r*6,p.r*6,1); p.group.add(gl);
+    if(p.ring){
+      // 多重バンド（A環・B環＋カッシーニの間隙）
+      p.ringMats=[];
+      const bands=[
+        {r0:1.35,r1:1.72,n:190,color:0xd8c7a0,size:.05},
+        {r0:1.80,r1:2.05,n:130,color:0xcbbb90,size:.045},
+        {r0:2.10,r1:2.35,n:90, color:0xb8a882,size:.04}
+      ];
+      bands.forEach((bd,bi)=>{
+        const rpts=[];
+        for(let i=0;i<bd.n;i++){
+          const a=Math.random()*Math.PI*2, rr=p.r*(bd.r0+Math.random()*(bd.r1-bd.r0));
+          rpts.push(rr*Math.cos(a),(Math.random()-.5)*.008,rr*Math.sin(a));
+        }
+        const rg=new THREE.BufferGeometry();
+        rg.setAttribute('position',new THREE.Float32BufferAttribute(rpts,3));
+        const rm=new THREE.PointsMaterial({size:bd.size,color:bd.color,transparent:true,opacity:.85,map:softDot,depthWrite:false});
+        rm.userData={phase:bi*2.1};
+        p.ringMats.push(rm);
+        const ring=new THREE.Points(rg,rm);
+        ring.rotation.x=.45; p.group.add(ring);
+      });
+      p.focusElev=.8; // フォーカス時は見下ろして環を見せる
+    }
+  }
+  // クリック判定用の透明球（小さい惑星も掴みやすく）
+  p.hit=new THREE.Mesh(new THREE.SphereGeometry(Math.max(p.r*2.2,.5),12,12),new THREE.MeshBasicMaterial({visible:false}));
+  p.group.add(p.hit);
+
+  // ラベル（クリックでフォーカス）
+  p.label=document.createElement('div');
+  p.label.className='planet-label';
+  p.label.textContent=p.name;
+  p.label.addEventListener('click',()=>{ if(mode==='solar') focusOn(p); });
+  document.body.appendChild(p.label);
+  // リーダー線（ラベル→実体）
+  p.leader=document.createElementNS('http://www.w3.org/2000/svg','line');
+  document.getElementById('leaderSvg').appendChild(p.leader);
+});
+
+/* ============ Earth (TERRA globe) ============ */
+function buildEarth(parent,R){
+  earthGroup=new THREE.Group();
+  parent.add(earthGroup);
+  const pos=[],col=[];
+  const cA=new THREE.Color('#4fd8ff'), cB=new THREE.Color('#2f7de0'), cC=new THREE.Color('#a9f0ff');
+  for(let lat=-90;lat<=90;lat+=1.8){
+    const rr=Math.cos(lat*Math.PI/180);
+    const n=Math.max(1,Math.round(200*rr));
+    for(let i=0;i<n;i++){
+      const lon=-180+360*i/n+(lat%3)*.7;
+      if(!isLand(lon,lat)) continue;
+      const phi=(90-lat)*Math.PI/180, th=(lon+180)*Math.PI/180;
+      pos.push(R*Math.sin(phi)*Math.cos(th),R*Math.cos(phi),-R*Math.sin(phi)*Math.sin(th));
+      const c=Math.random()<.82?cB.clone().lerp(cA,Math.random()*.8):cC;
+      col.push(c.r,c.g,c.b);
+    }
+  }
+  const g=new THREE.BufferGeometry();
+  g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+  g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));
+  earthGroup.add(new THREE.Points(g,new THREE.PointsMaterial({size:R*.017,vertexColors:true,map:softDot,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending,sizeAttenuation:true})));
+  earthGroup.add(new THREE.Mesh(new THREE.SphereGeometry(R*.985,48,48),new THREE.MeshBasicMaterial({color:0x060b18})));
+  const rim=new THREE.Mesh(new THREE.SphereGeometry(R*1.01,48,48),new THREE.ShaderMaterial({
+    transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,
+    uniforms:{c:{value:new THREE.Color('#3fa9e8')}},
+    vertexShader:'varying float vI;void main(){vec3 n=normalize(normalMatrix*normal);vec3 v=normalize((modelViewMatrix*vec4(position,1.)).xyz);vI=pow(1.0-abs(dot(n,-v)),2.6);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+    fragmentShader:'varying float vI;uniform vec3 c;void main(){gl_FragColor=vec4(c,vI*.9);}'
+  }));
+  earthGroup.add(rim);
+}
+
+/* ============ city markers & weather ============ */
+const CITIES={
+"東京":[35.68,139.76],"tokyo":[35.68,139.76],"大阪":[34.69,135.50],"osaka":[34.69,135.50],
+"札幌":[43.06,141.35],"sapporo":[43.06,141.35],"福岡":[33.59,130.40],"fukuoka":[33.59,130.40],
+"名古屋":[35.18,136.91],"nagoya":[35.18,136.91],"那覇":[26.21,127.68],"naha":[26.21,127.68],
+"ソウル":[37.57,126.98],"seoul":[37.57,126.98],"北京":[39.90,116.41],"beijing":[39.90,116.41],
+"上海":[31.23,121.47],"shanghai":[31.23,121.47],"台北":[25.03,121.57],"taipei":[25.03,121.57],
+"香港":[22.32,114.17],"hong kong":[22.32,114.17],"シンガポール":[1.35,103.82],"singapore":[1.35,103.82],
+"バンコク":[13.76,100.50],"bangkok":[13.76,100.50],"デリー":[28.61,77.21],"delhi":[28.61,77.21],
+"ドバイ":[25.20,55.27],"dubai":[25.20,55.27],"モスクワ":[55.76,37.62],"moscow":[55.76,37.62],
+"ロンドン":[51.51,-0.13],"london":[51.51,-0.13],"パリ":[48.86,2.35],"paris":[48.86,2.35],
+"ベルリン":[52.52,13.41],"berlin":[52.52,13.41],"ローマ":[41.90,12.50],"rome":[41.90,12.50],
+"カイロ":[30.04,31.24],"cairo":[30.04,31.24],"ナイロビ":[-1.29,36.82],"nairobi":[-1.29,36.82],
+"ニューヨーク":[40.71,-74.01],"new york":[40.71,-74.01],"ロサンゼルス":[34.05,-118.24],"los angeles":[34.05,-118.24],
+"サンフランシスコ":[37.77,-122.42],"san francisco":[37.77,-122.42],"シカゴ":[41.88,-87.63],"chicago":[41.88,-87.63],
+"トロント":[43.65,-79.38],"toronto":[43.65,-79.38],"メキシコシティ":[19.43,-99.13],"mexico city":[19.43,-99.13],
+"サンパウロ":[-23.55,-46.63],"sao paulo":[-23.55,-46.63],"ブエノスアイレス":[-34.60,-58.38],"buenos aires":[-34.60,-58.38],
+"シドニー":[-33.87,151.21],"sydney":[-33.87,151.21],"オークランド":[-36.85,174.76],"auckland":[-36.85,174.76],
+"ホノルル":[21.31,-157.86],"honolulu":[21.31,-157.86]
+};
+const orangeTex=dotTexture('rgba(255,180,94,1)','rgba(255,180,94,0)');
+const markers=[];
+const earthPlanet=PLANETS.find(p=>p.isEarth);
+
+function latLonToVec(lat,lon,R){
+  const phi=(90-lat)*Math.PI/180, th=(lon+180)*Math.PI/180;
+  return new THREE.Vector3(R*Math.sin(phi)*Math.cos(th),R*Math.cos(phi),-R*Math.sin(phi)*Math.sin(th));
+}
+function addMarker(name,lat,lon){
+  if(markers.find(m=>m.name===name)) return;
+  const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:orangeTex,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+  sp.position.copy(latLonToVec(lat,lon,RE*1.02));
+  earthGroup.add(sp);
+  const label=document.createElement('div');
+  label.className='marker-label'; label.textContent=name;
+  document.body.appendChild(label);
+  const m={sprite:sp,label,name,lat,lon,phase:Math.random()*7};
+  markers.push(m); fetchWeather(m); renderChips();
+}
+function removeMarker(m){
+  earthGroup.remove(m.sprite); m.label.remove();
+  markers.splice(markers.indexOf(m),1); renderChips();
+}
+function renderChips(){
+  const el=document.getElementById('chips'); el.innerHTML='';
+  markers.forEach(m=>{
+    const c=document.createElement('span'); c.className='chip';
+    c.innerHTML=m.name+(m.weather?' <b>'+m.weather+'</b>':'');
+    c.onclick=()=>removeMarker(m); el.appendChild(c);
+  });
+}
+function setMsg(s){document.getElementById('msg').textContent=s;}
+async function fetchWeather(m){
+  try{
+    const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude='+m.lat+'&longitude='+m.lon+'&current=temperature_2m,relative_humidity_2m',{signal:AbortSignal.timeout(6000)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    if(d.current&&typeof d.current.temperature_2m==='number'){applyWeather(m,Math.round(d.current.temperature_2m),d.current.relative_humidity_2m);return;}
+  }catch(e){}
+  try{
+    const r=await fetch('https://wttr.in/'+m.lat+','+m.lon+'?format=j1',{signal:AbortSignal.timeout(8000)});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const d=await r.json();
+    const c=d.current_condition&&d.current_condition[0];
+    if(c){applyWeather(m,parseInt(c.temp_C,10),parseInt(c.humidity,10));return;}
+  }catch(e){setMsg(I18N[curLang].wfail);}
+}
+function applyWeather(m,temp,hum){
+  m.weather=temp+'°C · '+hum+'%';
+  m.label.innerHTML=m.name+'<small>'+m.weather+'</small>';
+  renderChips(); setMsg('');
+}
+setInterval(()=>markers.forEach(fetchWeather),10*60*1000);
+
+document.getElementById('cityInput').addEventListener('keydown',e=>{
+  if(e.key!=='Enter')return;
+  const q=e.target.value.trim(); if(!q)return;
+  const ll=q.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
+  if(ll){addMarker(q,parseFloat(ll[1]),parseFloat(ll[2]));e.target.value='';setMsg('');return;}
+  const k=q.toLowerCase();
+  if(CITIES[k]){addMarker(q,CITIES[k][0],CITIES[k][1]);e.target.value='';setMsg('');}
+  else setMsg(I18N[curLang].notfound);
+});
+addMarker('Tokyo',35.68,139.76);
+
+/* ============ Starlink (earth mode) ============ */
+const starlink=(function(){
+  const PLANES=12, PER=18, INC=53*Math.PI/180, ALT=RE*1.28;
+  const N=PLANES*PER;
+  const sats=[];
+  for(let p=0;p<PLANES;p++){
+    const raan=p/PLANES*Math.PI*2;
+    for(let i=0;i<PER;i++) sats.push({raan, phase:i/PER*Math.PI*2+p*.35, speed:.25+Math.random()*.02});
+  }
+  const posArr=new Float32Array(N*3);
+  const geo=new THREE.BufferGeometry();
+  geo.setAttribute('position',new THREE.BufferAttribute(posArr,3));
+  const satGroup=new THREE.Group();
+  earthGroup.add(satGroup);
+  satGroup.add(new THREE.Points(geo,new THREE.PointsMaterial({
+    size:RE*.05,color:0xcfe9ff,map:softDot,transparent:true,opacity:.9,
+    depthWrite:false,blending:THREE.AdditiveBlending,sizeAttenuation:true
+  })));
+  function satPos(raan,phase,out){
+    const x=Math.cos(phase),y=Math.sin(phase);
+    const xi=x, yi=y*Math.cos(INC), zi=y*Math.sin(INC);
+    out.set(xi*Math.cos(raan)-yi*Math.sin(raan), zi, xi*Math.sin(raan)+yi*Math.cos(raan)).multiplyScalar(ALT);
+    return out;
+  }
+  const ringMat=new THREE.LineBasicMaterial({color:0x2a4a70,transparent:true,opacity:.3});
+  [0,4,8].forEach(p=>{
+    const raan=p/PLANES*Math.PI*2, pts=[];
+    for(let a=0;a<=120;a++) pts.push(satPos(raan,a/120*Math.PI*2,new THREE.Vector3()));
+    satGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),ringMat));
+  });
+  const v=new THREE.Vector3();
+  return {
+    update(t){
+      if(!satGroup.visible) return;
+      for(let i=0;i<N;i++){
+        satPos(sats[i].raan, sats[i].phase+t*sats[i].speed, v);
+        posArr[i*3]=v.x; posArr[i*3+1]=v.y; posArr[i*3+2]=v.z;
+      }
+      geo.attributes.position.needsUpdate=true;
+    },
+    setVisible(on){satGroup.visible=on;}
+  };
+})();
+document.getElementById('satToggle').addEventListener('change',e=>starlink.setVisible(e.target.checked));
+
+/* ============ Mars mission: 入植の時代 ============ */
+const marsPlanet=PLANETS.find(p=>p.name==='Mars');
+const marsMission=(function(){
+  const missionGroup=new THREE.Group();
+  scene.add(missionGroup);
+  const settleGroup=new THREE.Group();
+  marsPlanet.group.add(settleGroup);
+
+  const ARC_N=64;
+  const arcPos=new Float32Array((ARC_N+1)*3);
+  const arcGeo=new THREE.BufferGeometry();
+  arcGeo.setAttribute('position',new THREE.BufferAttribute(arcPos,3));
+  const arc=new THREE.Line(arcGeo,new THREE.LineBasicMaterial({color:0xe07a5f,transparent:true,opacity:.28}));
+  missionGroup.add(arc);
+
+  // 入植船
+  const ship=new THREE.Sprite(new THREE.SpriteMaterial({
+    map:dotTexture('rgba(255,220,180,1)','rgba(255,150,90,0)'),
+    transparent:true,depthWrite:false,blending:THREE.AdditiveBlending
+  }));
+  ship.scale.set(.5,.5,1); missionGroup.add(ship);
+
+  // 入植地の灯り
+  const settleTex=dotTexture('rgba(255,170,90,1)','rgba(255,120,60,0)');
+  const settlements=[];
+  function addSettlement(){
+    if(settlements.length>=40) return;
+    const lat=-30+Math.random()*60, lon=Math.random()*360-180;
+    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:settleTex,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));
+    sp.position.copy(latLonToVec(lat,lon,marsPlanet.r*1.03));
+    sp.scale.set(0,0,1);
+    settleGroup.add(sp);
+    settlements.push({sp,born:performance.now(),phase:Math.random()*7});
+  }
+  addSettlement(); // 最初のひとつ
+
+  const TRIP=40;         // 片道の所要（simT秒）
+  const WAIT=12;         // 到着後、次便までの待機
+  let phaseStart=0, flying=true;
+  const a=new THREE.Vector3(), b=new THREE.Vector3(), mid=new THREE.Vector3(), pt=new THREE.Vector3();
+
+  function bezier(t,P0,P1,P2,out){
+    const u=1-t;
+    out.set(
+      u*u*P0.x+2*u*t*P1.x+t*t*P2.x,
+      u*u*P0.y+2*u*t*P1.y+t*t*P2.y,
+      u*u*P0.z+2*u*t*P1.z+t*t*P2.z
+    );
+    return out;
+  }
+
+  return {
+    settlements,
+    setVisible(on){ missionGroup.visible=on; settleGroup.visible=on; },
+    update(t){
+      if(!missionGroup.visible) return;
+      a.copy(earthPlanet.group.position);
+      b.copy(marsPlanet.group.position);
+      mid.copy(a).add(b).multiplyScalar(.5).normalize().multiplyScalar((earthPlanet.orbit+marsPlanet.orbit)/2+3);
+
+      // アーク更新
+      for(let i=0;i<=ARC_N;i++){
+        bezier(i/ARC_N,a,mid,b,pt);
+        arcPos[i*3]=pt.x; arcPos[i*3+1]=pt.y; arcPos[i*3+2]=pt.z;
+      }
+      arcGeo.attributes.position.needsUpdate=true;
+
+      // 船の航行（simT基準なのでフォーカス中は静止）
+      const el=simT-phaseStart;
+      if(flying){
+        const s=Math.min(1,el/TRIP);
+        bezier(s,a,mid,b,ship.position);
+        ship.material.opacity=.5+Math.sin(t*4)*.3;
+        if(s>=1){flying=false;phaseStart=simT;addSettlement();}
+      }else{
+        ship.position.copy(a); ship.material.opacity=0;
+        if(el>=WAIT){flying=true;phaseStart=simT;}
+      }
+
+      // 灯りの明滅と出現アニメーション
+      settlements.forEach(st=>{
+        const age=Math.min(1,(performance.now()-st.born)/2000);
+        const s=marsPlanet.r*(.32+Math.sin(t*2+st.phase)*.06)*age;
+        st.sp.scale.set(s,s,1);
+      });
+    }
+  };
+})();
+
+// 次の火星遷移ウィンドウ（会合周期≒780日、基準: 2026-11-20）
+function nextMarsWindow(){
+  const base=new Date('2026-11-20'), P=780*864e5;
+  let d=base.getTime();
+  while(d<Date.now()) d+=P;
+  return new Intl.DateTimeFormat(I18N[curLang].locale,{year:'numeric',month:'long'}).format(new Date(d));
+}
+
+/* ============ i18n ============ */
+const PN=['Mercury','Venus','Earth','Mars','Jupiter','Saturn','Uranus','Neptune'];
+function pl(arr){const o={};PN.forEach((n,i)=>o[n]=arr[i]);return o;}
+const I18N={
+ja:{locale:'ja-JP',eyebrow:'Planetary System Viewer / 太陽系儀',caption:'現在の視点',hint:'Drag to orbit · Scroll to zoom · Click a planet',back:'← Solar System',ph:'地名を追加（例: 大阪 / paris / 35.6,139.7）',notfound:'見つかりません — 「緯度,経度」形式でも指定できます',wfail:'気象データ取得不可（2系統とも失敗）',solar:'惑星名をクリックすると近づけます — 地球には都市が眠っています',earth:'ドラッグで地球を回せます — 都市の気温と湿度',mars:'入植地: {n}箇所 — 次の出発ウィンドウ: {win}',jupiter:'大赤斑と4つのガリレオ衛星 — イオ・エウロパ・ガニメデ・カリスト',saturn:'環の粒子はほとんどが氷 — カッシーニの間隙が見えます',venus:'雲だけが4日で1周 — 本体の自転は逆向きに243日（スーパーローテーション）',mercury:'昼側430°C・夜側−180°C — 太陽系最大の温度差が明滅しています',neptune:'太陽から最も遠く、風は最速 — 時速2,100kmの流線',generic:'ドラッグで視点を回せます',planets:pl(['水星','金星','地球','火星','木星','土星','天王星','海王星'])},
+en:{locale:'en-US',eyebrow:'Planetary System Viewer / Orrery',caption:'Current view',hint:'Drag to orbit · Scroll to zoom · Click a planet',back:'← Solar System',ph:'Add a city (e.g. tokyo / paris / 35.6,139.7)',notfound:'Not found — you can also enter "lat,lon"',wfail:'Weather unavailable (both sources failed)',solar:"Click a planet's name to approach — cities sleep on Earth",earth:'Drag to rotate Earth — city temperature & humidity',mars:'Settlements: {n} — next launch window: {win}',jupiter:'The Great Red Spot and the four Galilean moons — Io, Europa, Ganymede, Callisto',saturn:'The ring particles are mostly ice — note the Cassini Division',venus:'Clouds circle in 4 days — the planet spins backwards in 243 (super-rotation)',mercury:"Day side 430°C, night side −180°C — the solar system's greatest temperature swing",neptune:'Farthest from the Sun, fastest winds — 2,100 km/h streamlines',generic:'Drag to rotate the view',planets:pl(['Mercury','Venus','Earth','Mars','Jupiter','Saturn','Uranus','Neptune'])},
+zh:{locale:'zh-CN',eyebrow:'行星系统观测 / 太阳系仪',caption:'当前视角',hint:'拖动旋转 · 滚轮缩放 · 点击行星',back:'← 太阳系',ph:'添加城市（如: tokyo / paris / 35.6,139.7）',notfound:'未找到 — 也可输入「纬度,经度」',wfail:'无法获取气象数据（两个数据源均失败）',solar:'点击行星名称即可靠近 — 地球上沉睡着城市',earth:'拖动旋转地球 — 城市的气温与湿度',mars:'定居点: {n} — 下次发射窗口: {win}',jupiter:'大红斑与四颗伽利略卫星 — 木卫一·木卫二·木卫三·木卫四',saturn:'光环颗粒大多是冰 — 可见卡西尼缝',venus:'云层4天绕行一周 — 本体逆向自转243天（超级自转）',mercury:'昼面430°C · 夜面−180°C — 太阳系最大温差',neptune:'离太阳最远，风却最快 — 时速2,100公里的流线',generic:'拖动旋转视角',planets:pl(['水星','金星','地球','火星','木星','土星','天王星','海王星'])},
+tw:{locale:'zh-TW',eyebrow:'行星系統檢視 / 太陽系儀',caption:'目前視角',hint:'拖曳旋轉 · 滾輪縮放 · 點擊行星',back:'← 太陽系',ph:'新增城市（如: tokyo / paris / 35.6,139.7）',notfound:'找不到 — 也可輸入「緯度,經度」',wfail:'無法取得氣象資料（兩個來源皆失敗）',solar:'點擊行星名稱即可靠近 — 地球上沉睡著城市',earth:'拖曳旋轉地球 — 城市的氣溫與濕度',mars:'聚落: {n} — 下次發射窗口: {win}',jupiter:'大紅斑與四顆伽利略衛星 — 木衛一·木衛二·木衛三·木衛四',saturn:'光環顆粒大多是冰 — 可見卡西尼縫',venus:'雲層4天繞行一週 — 本體逆向自轉243天（超級自轉）',mercury:'晝面430°C · 夜面−180°C — 太陽系最大溫差',neptune:'離太陽最遠，風卻最快 — 時速2,100公里的流線',generic:'拖曳旋轉視角',planets:pl(['水星','金星','地球','火星','木星','土星','天王星','海王星'])},
+ko:{locale:'ko-KR',eyebrow:'행성계 뷰어 / 태양계의',caption:'현재 시점',hint:'드래그 회전 · 스크롤 확대 · 행성 클릭',back:'← 태양계',ph:'도시 추가 (예: tokyo / paris / 35.6,139.7)',notfound:'찾을 수 없음 — "위도,경도" 형식도 가능합니다',wfail:'기상 데이터를 가져올 수 없음 (두 소스 모두 실패)',solar:'행성 이름을 클릭하면 다가갑니다 — 지구에는 도시가 잠들어 있습니다',earth:'드래그로 지구 회전 — 도시의 기온과 습도',mars:'정착지: {n}곳 — 다음 발사 윈도우: {win}',jupiter:'대적점과 4개의 갈릴레이 위성 — 이오·유로파·가니메데·칼리스토',saturn:'고리 입자는 대부분 얼음 — 카시니 간극이 보입니다',venus:'구름은 4일에 한 바퀴 — 본체는 역방향으로 243일 자전 (슈퍼로테이션)',mercury:'낮 430°C · 밤 −180°C — 태양계 최대의 온도차',neptune:'태양에서 가장 멀고, 바람은 가장 빠름 — 시속 2,100km의 유선',generic:'드래그로 시점 회전',planets:pl(['수성','금성','지구','화성','목성','토성','천왕성','해왕성'])},
+es:{locale:'es-ES',eyebrow:'Visor del sistema planetario / Planetario',caption:'Vista actual',hint:'Arrastra para orbitar · Rueda para zoom · Clic en un planeta',back:'← Sistema solar',ph:'Añadir ciudad (ej.: tokyo / paris / 35.6,139.7)',notfound:'No encontrado — también puedes usar «lat,lon»',wfail:'Datos meteorológicos no disponibles (fallaron ambas fuentes)',solar:'Haz clic en el nombre de un planeta para acercarte — en la Tierra duermen las ciudades',earth:'Arrastra para girar la Tierra — temperatura y humedad de las ciudades',mars:'Asentamientos: {n} — próxima ventana de lanzamiento: {win}',jupiter:'La Gran Mancha Roja y las cuatro lunas galileanas — Ío, Europa, Ganimedes, Calisto',saturn:'Las partículas de los anillos son casi todo hielo — se ve la División de Cassini',venus:'Las nubes dan la vuelta en 4 días — el planeta gira al revés en 243 (superrotación)',mercury:'Día 430°C · noche −180°C — el mayor contraste térmico del sistema solar',neptune:'El más lejano del Sol, los vientos más rápidos — 2.100 km/h',generic:'Arrastra para girar la vista',planets:pl(['Mercurio','Venus','Tierra','Marte','Júpiter','Saturno','Urano','Neptuno'])},
+fr:{locale:'fr-FR',eyebrow:'Visualiseur du système planétaire / Planétaire',caption:'Vue actuelle',hint:'Glisser pour orbiter · Molette pour zoomer · Cliquer sur une planète',back:'← Système solaire',ph:'Ajouter une ville (ex. : tokyo / paris / 35.6,139.7)',notfound:'Introuvable — vous pouvez aussi saisir « lat,lon »',wfail:'Météo indisponible (les deux sources ont échoué)',solar:"Cliquez sur le nom d'une planète pour vous en approcher — sur Terre dorment les villes",earth:'Faites glisser pour tourner la Terre — température et humidité des villes',mars:'Colonies : {n} — prochaine fenêtre de lancement : {win}',jupiter:'La Grande Tache rouge et les quatre lunes galiléennes — Io, Europe, Ganymède, Callisto',saturn:'Les anneaux sont surtout faits de glace — on voit la division de Cassini',venus:"Les nuages font le tour en 4 jours — la planète tourne à l'envers en 243 (super-rotation)",mercury:'Jour 430°C · nuit −180°C — le plus grand écart thermique du système solaire',neptune:'La plus lointaine du Soleil, les vents les plus rapides — 2 100 km/h',generic:'Faites glisser pour tourner la vue',planets:pl(['Mercure','Vénus','Terre','Mars','Jupiter','Saturne','Uranus','Neptune'])},
+de:{locale:'de-DE',eyebrow:'Planetensystem-Viewer / Planetarium',caption:'Aktuelle Ansicht',hint:'Ziehen zum Umkreisen · Scrollen zum Zoomen · Planet anklicken',back:'← Sonnensystem',ph:'Stadt hinzufügen (z. B. tokyo / paris / 35.6,139.7)',notfound:'Nicht gefunden — auch „Breite,Länge" möglich',wfail:'Wetterdaten nicht verfügbar (beide Quellen fehlgeschlagen)',solar:'Auf einen Planetennamen klicken, um näher zu kommen — auf der Erde schlafen die Städte',earth:'Ziehen, um die Erde zu drehen — Temperatur und Luftfeuchte der Städte',mars:'Siedlungen: {n} — nächstes Startfenster: {win}',jupiter:'Der Große Rote Fleck und die vier Galileischen Monde — Io, Europa, Ganymed, Kallisto',saturn:'Die Ringteilchen bestehen meist aus Eis — die Cassini-Teilung ist sichtbar',venus:'Die Wolken umrunden den Planeten in 4 Tagen — er selbst dreht rückwärts in 243 (Superrotation)',mercury:'Tagseite 430°C · Nachtseite −180°C — größter Temperaturunterschied im Sonnensystem',neptune:'Am weitesten von der Sonne, die schnellsten Winde — 2.100 km/h',generic:'Ziehen, um die Ansicht zu drehen',planets:pl(['Merkur','Venus','Erde','Mars','Jupiter','Saturn','Uranus','Neptun'])},
+it:{locale:'it-IT',eyebrow:'Visore del sistema planetario / Planetario',caption:'Vista attuale',hint:'Trascina per orbitare · Scorri per lo zoom · Clicca un pianeta',back:'← Sistema solare',ph:'Aggiungi città (es.: tokyo / paris / 35.6,139.7)',notfound:'Non trovato — puoi anche inserire «lat,lon»',wfail:'Meteo non disponibile (entrambe le fonti non rispondono)',solar:'Clicca il nome di un pianeta per avvicinarti — sulla Terra dormono le città',earth:'Trascina per ruotare la Terra — temperatura e umidità delle città',mars:'Insediamenti: {n} — prossima finestra di lancio: {win}',jupiter:'La Grande Macchia Rossa e le quattro lune galileiane — Io, Europa, Ganimede, Callisto',saturn:'Le particelle degli anelli sono quasi tutte ghiaccio — si vede la divisione di Cassini',venus:'Le nuvole girano in 4 giorni — il pianeta ruota al contrario in 243 (super-rotazione)',mercury:'Giorno 430°C · notte −180°C — il più grande sbalzo termico del sistema solare',neptune:'Il più lontano dal Sole, i venti più veloci — 2.100 km/h',generic:'Trascina per ruotare la vista',planets:pl(['Mercurio','Venere','Terra','Marte','Giove','Saturno','Urano','Nettuno'])},
+pt:{locale:'pt-BR',eyebrow:'Visualizador do sistema planetário / Planetário',caption:'Vista atual',hint:'Arraste para orbitar · Role para zoom · Clique num planeta',back:'← Sistema solar',ph:'Adicionar cidade (ex.: tokyo / paris / 35.6,139.7)',notfound:'Não encontrado — também pode inserir "lat,lon"',wfail:'Meteorologia indisponível (ambas as fontes falharam)',solar:'Clique no nome de um planeta para se aproximar — na Terra dormem as cidades',earth:'Arraste para girar a Terra — temperatura e umidade das cidades',mars:'Assentamentos: {n} — próxima janela de lançamento: {win}',jupiter:'A Grande Mancha Vermelha e as quatro luas galileanas — Io, Europa, Ganimedes, Calisto',saturn:'As partículas dos anéis são quase todas gelo — vê-se a Divisão de Cassini',venus:'As nuvens dão a volta em 4 dias — o planeta gira ao contrário em 243 (super-rotação)',mercury:'Dia 430°C · noite −180°C — a maior variação térmica do sistema solar',neptune:'O mais distante do Sol, os ventos mais rápidos — 2.100 km/h',generic:'Arraste para girar a vista',planets:pl(['Mercúrio','Vênus','Terra','Marte','Júpiter','Saturno','Urano','Netuno'])},
+ru:{locale:'ru-RU',eyebrow:'Обзор планетной системы / Планетарий',caption:'Текущий вид',hint:'Перетаскивайте для облёта · Колесо — масштаб · Кликните планету',back:'← Солнечная система',ph:'Добавить город (напр.: tokyo / paris / 35.6,139.7)',notfound:'Не найдено — можно ввести «широта,долгота»',wfail:'Погода недоступна (оба источника не отвечают)',solar:'Кликните имя планеты, чтобы приблизиться — на Земле спят города',earth:'Перетаскивайте, чтобы вращать Землю — температура и влажность городов',mars:'Поселения: {n} — следующее окно запуска: {win}',jupiter:'Большое Красное Пятно и четыре галилеевых спутника — Ио, Европа, Ганимед, Каллисто',saturn:'Частицы колец — в основном лёд, видно деление Кассини',venus:'Облака облетают планету за 4 дня — сама она вращается вспять за 243 (суперротация)',mercury:'День 430°C · ночь −180°C — крупнейший перепад температур в Солнечной системе',neptune:'Дальше всех от Солнца, самые быстрые ветра — 2 100 км/ч',generic:'Перетаскивайте, чтобы вращать вид',planets:pl(['Меркурий','Венера','Земля','Марс','Юпитер','Сатурн','Уран','Нептун'])},
+ar:{locale:'ar',eyebrow:'عارض النظام الكوكبي / نموذج المجموعة الشمسية',caption:'العرض الحالي',hint:'اسحب للدوران · مرّر للتكبير · انقر على كوكب',back:'← المجموعة الشمسية',ph:'أضف مدينة (مثال: tokyo / paris / 35.6,139.7)',notfound:'غير موجود — يمكنك أيضًا إدخال «خط العرض,خط الطول»',wfail:'بيانات الطقس غير متاحة (فشل المصدران)',solar:'انقر على اسم كوكب للاقتراب — على الأرض تنام المدن',earth:'اسحب لتدوير الأرض — حرارة المدن ورطوبتها',mars:'المستوطنات: {n} — نافذة الإطلاق القادمة: {win}',jupiter:'البقعة الحمراء العظيمة وأقمار غاليليو الأربعة — آيو، يوروبا، غانيميد، كاليستو',saturn:'جسيمات الحلقات معظمها جليد — يظهر فاصل كاسيني',venus:'الغيوم تدور في 4 أيام — الكوكب نفسه يدور عكسيًا في 243 يومًا (الدوران الفائق)',mercury:'النهار 430°م · الليل −180°م — أكبر فارق حراري في المجموعة الشمسية',neptune:'الأبعد عن الشمس والرياح الأسرع — 2,100 كم/س',generic:'اسحب لتدوير العرض',planets:pl(['عطارد','الزهرة','الأرض','المريخ','المشتري','زحل','أورانوس','نبتون'])},
+hi:{locale:'hi-IN',eyebrow:'ग्रह मंडल दर्शक / सौरमंडल यंत्र',caption:'वर्तमान दृश्य',hint:'घुमाने के लिए खींचें · ज़ूम के लिए स्क्रॉल · ग्रह पर क्लिक करें',back:'← सौरमंडल',ph:'शहर जोड़ें (जैसे: tokyo / paris / 35.6,139.7)',notfound:'नहीं मिला — «अक्षांश,देशांतर» भी लिख सकते हैं',wfail:'मौसम डेटा उपलब्ध नहीं (दोनों स्रोत विफल)',solar:'किसी ग्रह के नाम पर क्लिक करें — पृथ्वी पर शहर सो रहे हैं',earth:'पृथ्वी घुमाने के लिए खींचें — शहरों का तापमान और आर्द्रता',mars:'बस्तियाँ: {n} — अगली प्रक्षेपण विंडो: {win}',jupiter:'महान लाल धब्बा और चार गैलीलियन चंद्रमा — आयो, यूरोपा, गैनीमीड, कैलिस्टो',saturn:'वलयों के कण अधिकतर बर्फ हैं — कैसिनी विभाजन दिखता है',venus:'बादल 4 दिन में चक्कर लगाते हैं — ग्रह स्वयं 243 दिन में उल्टा घूमता है (सुपर-रोटेशन)',mercury:'दिन 430°C · रात −180°C — सौरमंडल का सबसे बड़ा तापांतर',neptune:'सूर्य से सबसे दूर, हवाएँ सबसे तेज़ — 2,100 किमी/घंटा',generic:'दृश्य घुमाने के लिए खींचें',planets:pl(['बुध','शुक्र','पृथ्वी','मंगल','बृहस्पति','शनि','अरुण','वरुण'])}
+};
+let curLang='ja';
+
+function updateSubline(){
+  const L=I18N[curLang], sub=document.getElementById('subline');
+  if(mode!=='focus'||!focused){ sub.textContent=L.solar; return; }
+  const p=focused;
+  if(p.isEarth) sub.textContent=L.earth;
+  else if(p.name==='Mars') sub.textContent=L.mars.replace('{n}',marsMission.settlements.length).replace('{win}',nextMarsWindow());
+  else if(p.name==='Jupiter') sub.textContent=L.jupiter;
+  else if(p.name==='Saturn') sub.textContent=L.saturn;
+  else if(p.name==='Venus') sub.textContent=L.venus;
+  else if(p.name==='Mercury') sub.textContent=L.mercury;
+  else if(p.name==='Neptune') sub.textContent=L.neptune;
+  else if(p.name==='Moon') sub.textContent=L.moon.replace('{p}',moonAmbient.illumination());
+  else sub.textContent=L.generic;
+}
+function updateReadout(){
+  const L=I18N[curLang];
+  document.getElementById('focusReadout').innerHTML=
+    (mode==='focus'&&focused)?'<em>'+focused.name.toUpperCase()+'</em> / '+L.planets[focused.name]:'<em>SOLAR SYSTEM</em>';
+}
+function applyLang(code){
+  curLang=code;
+  const L=I18N[code];
+  document.getElementById('eyebrow').textContent=L.eyebrow;
+  document.getElementById('viewCaption').textContent=L.caption;
+  document.getElementById('hint').textContent=L.hint;
+  document.getElementById('backBtn').textContent=L.back;
+  document.getElementById('cityInput').placeholder=L.ph;
+  updateSubline(); updateReadout();
+}
+document.getElementById('langSel').addEventListener('change',e=>applyLang(e.target.value));
+
+document.getElementById('missionToggle').addEventListener('change',e=>marsMission.setVisible(e.target.checked));
+
+/* ============ Mars 案B: フォボス・ダイモス＋砂嵐 ============ */
+const marsAmbient=(function(){
+  const g=new THREE.Group();
+  marsPlanet.group.add(g);
+
+  // 衛星（フォボス: 速い / ダイモス: 遅い）
+  const moonMat=new THREE.MeshBasicMaterial({color:0x8a8078});
+  const phobos=new THREE.Mesh(new THREE.SphereGeometry(marsPlanet.r*.12,10,10),moonMat);
+  const deimos=new THREE.Mesh(new THREE.SphereGeometry(marsPlanet.r*.08,10,10),moonMat);
+  g.add(phobos); g.add(deimos);
+  // フォボス軌道リング（薄く）
+  const orbMat=new THREE.LineBasicMaterial({color:0x5a4a42,transparent:true,opacity:.3});
+  [2.2,3.4].forEach(k=>{
+    const pts=[];
+    for(let i=0;i<=90;i++){const a=i/90*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(a)*marsPlanet.r*k,0,Math.sin(a)*marsPlanet.r*k));}
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),orbMat));
+  });
+
+  // 砂嵐: 赤道帯を流れる微粒子
+  const DN=260;
+  const dustPos=new Float32Array(DN*3);
+  const dust=[];
+  for(let i=0;i<DN;i++){
+    dust.push({lat:-35+Math.random()*70, lon:Math.random()*360-180, spd:.5+Math.random()*.7});
+  }
+  const dustGeo=new THREE.BufferGeometry();
+  dustGeo.setAttribute('position',new THREE.BufferAttribute(dustPos,3));
+  const dustMat=new THREE.PointsMaterial({
+    size:marsPlanet.r*.09,color:0xd98a66,map:softDot,
+    transparent:true,opacity:0,depthWrite:false,blending:THREE.AdditiveBlending
+  });
+  g.add(new THREE.Points(dustGeo,dustMat));
+
+  const STORM_CYCLE=75, STORM_LEN=22; // 75秒周期で22秒の砂嵐
+  const v=new THREE.Vector3();
+  return {
+    update(t,dt){
+      // 衛星公転（フォボス≈9秒/周、ダイモス≈28秒/周）
+      const pa=t*.7, da=t*.22;
+      phobos.position.set(Math.cos(pa)*marsPlanet.r*2.2,0,Math.sin(pa)*marsPlanet.r*2.2);
+      deimos.position.set(Math.cos(da)*marsPlanet.r*3.4,Math.sin(da*.5)*marsPlanet.r*.2,Math.sin(da)*marsPlanet.r*3.4);
+
+      // 砂嵐の包絡線（ゆっくり立ち上がりゆっくり収まる）
+      const c=t%STORM_CYCLE;
+      const env=c<STORM_LEN?Math.sin(Math.PI*c/STORM_LEN):0;
+      dustMat.opacity=env*.55;
+      if(env>0){
+        for(let i=0;i<DN;i++){
+          const d=dust[i];
+          d.lon+=d.spd*dt*22; if(d.lon>180)d.lon-=360;
+          v.copy(latLonToVec(d.lat,d.lon,marsPlanet.r*1.05));
+          dustPos[i*3]=v.x; dustPos[i*3+1]=v.y; dustPos[i*3+2]=v.z;
+        }
+        dustGeo.attributes.position.needsUpdate=true;
+      }
+    }
+  };
+})();
+
+/* ============ Jupiter: 縞・大赤斑・ガリレオ衛星 ============ */
+const jupiterAmbient=(function(){
+  const jp=PLANETS.find(p=>p.name==='Jupiter');
+  const g=new THREE.Group();
+  jp.group.add(g);
+
+  // 縞（緯度帯の点線リング）
+  const bandLats=[-45,-28,-12,4,20,36,52];
+  const bandCols=[0xc59a63,0xe8cfa0,0xb98a58,0xe0c493,0xc59a63,0xe8cfa0,0xb98a58];
+  bandLats.forEach((lat,i)=>{
+    const rr=jp.r*1.01*Math.cos(lat*Math.PI/180), y=jp.r*1.01*Math.sin(lat*Math.PI/180);
+    const n=Math.max(24,Math.round(rr*160));
+    const pts=[];
+    for(let k=0;k<n;k++){const a=k/n*Math.PI*2;pts.push(rr*Math.cos(a),y,rr*Math.sin(a));}
+    const bg=new THREE.BufferGeometry();
+    bg.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+    g.add(new THREE.Points(bg,new THREE.PointsMaterial({size:.03,color:bandCols[i],transparent:true,opacity:.55,map:softDot,depthWrite:false})));
+  });
+
+  // 大赤斑: 南緯22°付近で渦巻くドット
+  const SN=90;
+  const spotPos=new Float32Array(SN*3);
+  const spot=[];
+  for(let i=0;i<SN;i++) spot.push({r:.15+Math.random()*.85, a:Math.random()*Math.PI*2, spd:.5+Math.random()*.9});
+  const spotGeo=new THREE.BufferGeometry();
+  spotGeo.setAttribute('position',new THREE.BufferAttribute(spotPos,3));
+  g.add(new THREE.Points(spotGeo,new THREE.PointsMaterial({size:.035,color:0xd96a4a,transparent:true,opacity:.9,map:softDot,depthWrite:false,blending:THREE.AdditiveBlending})));
+  const SPOT_LAT=-22*Math.PI/180, SPOT_LON=0, SPOT_R=jp.r*.22;
+  // 大赤斑の局所座標系（表面接平面）
+  const center=new THREE.Vector3(
+    Math.cos(SPOT_LAT)*Math.cos(SPOT_LON), Math.sin(SPOT_LAT), Math.cos(SPOT_LAT)*Math.sin(SPOT_LON)
+  ).multiplyScalar(jp.r*1.02);
+  const nrm=center.clone().normalize();
+  const tanU=new THREE.Vector3(0,1,0).cross(nrm).normalize();
+  const tanV=nrm.clone().cross(tanU).normalize();
+
+  // ガリレオ衛星
+  const MOONS=[
+    {name:'Io',       r:.045, orbit:1.9, spd:.9,  color:0xe8d07a},
+    {name:'Europa',   r:.04,  orbit:2.4, spd:.55, color:0xdfe8f0},
+    {name:'Ganymede', r:.06,  orbit:3.0, spd:.32, color:0xa8a49c},
+    {name:'Callisto', r:.055, orbit:3.7, spd:.18, color:0x7d746a}
+  ];
+  const orbMat=new THREE.LineBasicMaterial({color:0x3a4a5a,transparent:true,opacity:.3});
+  MOONS.forEach(m=>{
+    m.mesh=new THREE.Mesh(new THREE.SphereGeometry(jp.r*m.r*2.2,10,10),new THREE.MeshBasicMaterial({color:m.color}));
+    m.phase=Math.random()*Math.PI*2;
+    g.add(m.mesh);
+    const pts=[];
+    for(let i=0;i<=90;i++){const a=i/90*Math.PI*2;pts.push(new THREE.Vector3(Math.cos(a)*jp.r*m.orbit,0,Math.sin(a)*jp.r*m.orbit));}
+    g.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),orbMat));
+  });
+
+  const v=new THREE.Vector3();
+  return {
+    update(t){
+      // 大赤斑の渦（内側ほど速い差動回転）
+      for(let i=0;i<SN;i++){
+        const s=spot[i];
+        const ang=s.a+t*s.spd*(1.6-s.r);
+        v.copy(center)
+          .addScaledVector(tanU,Math.cos(ang)*s.r*SPOT_R)
+          .addScaledVector(tanV,Math.sin(ang)*s.r*SPOT_R*.62); // 楕円形
+        v.normalize().multiplyScalar(jp.r*1.02);
+        spotPos[i*3]=v.x; spotPos[i*3+1]=v.y; spotPos[i*3+2]=v.z;
+      }
+      spotGeo.attributes.position.needsUpdate=true;
+      // 衛星公転
+      MOONS.forEach(m=>{
+        const a=m.phase+t*m.spd;
+        m.mesh.position.set(Math.cos(a)*jp.r*m.orbit,0,Math.sin(a)*jp.r*m.orbit);
+      });
+    }
+  };
+})();
+
+/* ============ トリビア層: 金星・水星・海王星 ============ */
+const triviaAmbient=(function(){
+  const venus=PLANETS.find(p=>p.name==='Venus');
+  const mercury=PLANETS.find(p=>p.name==='Mercury');
+  const neptune=PLANETS.find(p=>p.name==='Neptune');
+
+  /* 金星: 硫酸雲のスーパーローテーション（本体は逆向き超低速自転） */
+  const vClouds=new THREE.Group();
+  venus.group.add(vClouds);
+  (function(){
+    const pts=[];
+    for(let i=0;i<160;i++){
+      const u=Math.random()*2-1, th=Math.random()*Math.PI*2;
+      const s=Math.sqrt(1-u*u);
+      pts.push(s*Math.cos(th)*venus.r*1.12, u*venus.r*1.12, s*Math.sin(th)*venus.r*1.12);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+    vClouds.add(new THREE.Points(g,new THREE.PointsMaterial({size:.035,color:0xf0e0c0,transparent:true,opacity:.5,map:softDot,depthWrite:false})));
+  })();
+  const vBody=venus.group.children[0]; // 本体メッシュ
+
+  /* 水星: 昼側だけ熱で白く明滅（昼夜温度差600℃） */
+  const mDay=new THREE.Group();
+  mercury.group.add(mDay);
+  const mDayMat=new THREE.PointsMaterial({size:.03,color:0xfff0d8,transparent:true,opacity:.7,map:softDot,depthWrite:false,blending:THREE.AdditiveBlending});
+  (function(){
+    const pts=[];
+    for(let i=0;i<70;i++){
+      // +Z半球（昼側）に集中配置し、毎フレーム太陽方向へ向ける
+      const u=Math.random()*2-1, th=(Math.random()-.5)*Math.PI;
+      const s=Math.sqrt(1-u*u);
+      pts.push(Math.abs(s*Math.cos(th))*mercury.r*1.04, u*mercury.r*1.04, s*Math.sin(th)*mercury.r*1.04);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pts,3));
+    mDay.add(new THREE.Points(g,mDayMat));
+  })();
+
+  /* 海王星: 太陽系最速の風（時速2,100km）の流線 */
+  const NN=140;
+  const nPos=new Float32Array(NN*3);
+  const nWind=[];
+  for(let i=0;i<NN;i++) nWind.push({lat:-55+Math.random()*110, lon:Math.random()*360-180, spd:1.2+Math.random()*1.4});
+  const nGeo=new THREE.BufferGeometry();
+  nGeo.setAttribute('position',new THREE.BufferAttribute(nPos,3));
+  neptune.group.add(new THREE.Points(nGeo,new THREE.PointsMaterial({size:.03,color:0xaac8ff,transparent:true,opacity:.75,map:softDot,depthWrite:false,blending:THREE.AdditiveBlending})));
+
+  const v=new THREE.Vector3(), sunDir=new THREE.Vector3();
+  return {
+    update(t,dt){
+      // 金星: 雲は速く順回転、本体はごく遅く逆回転
+      vClouds.rotation.y+=dt*.5;
+      vBody.rotation.y-=dt*.01;
+
+      // 水星: 昼側クラスタを常に太陽方向へ向け、熱の明滅
+      sunDir.copy(mercury.group.position).multiplyScalar(-1).normalize();
+      mDay.quaternion.setFromUnitVectors(new THREE.Vector3(1,0,0),sunDir);
+      mDayMat.opacity=.45+Math.sin(t*7)*.15+Math.sin(t*13)*.1;
+
+      // 海王星: 風の流線（東向きに高速で流れる）
+      for(let i=0;i<NN;i++){
+        const w=nWind[i];
+        w.lon-=w.spd*dt*38; if(w.lon<-180)w.lon+=360;
+        v.copy(latLonToVec(w.lat,w.lon,neptune.r*1.06));
+        nPos[i*3]=v.x; nPos[i*3+1]=v.y; nPos[i*3+2]=v.z;
+      }
+      nGeo.attributes.position.needsUpdate=true;
+    }
+  };
+})();
+
+/* ============ Moon: 地球の衛星 ============ */
+// TDZ対策: 月関連の宣言はすべてこのブロック冒頭にまとめる
+const moonAmbient=(function(){
+  const MOON_R=.06, MOON_ORBIT=.62, MOON_SPD=.32; // 公転≈20秒/周（地球公転とのバランス調整値）
+  const moonAng0=Math.random()*Math.PI*2;
+
+  // 月相計算のための光源（Lambert材質にのみ作用。既存のBasic材質には影響なし）
+  scene.add(new THREE.PointLight(0xfff4e0,1.15,0,2));
+  scene.add(new THREE.AmbientLight(0x1a1e2e,.9)); // 夜側が完全な黒にならない程度
+
+  // クレーター質感テクスチャ（高解像度・バンディング対策）
+  function moonTexture(){
+    const c=document.createElement('canvas'); c.width=c.height=512;
+    const g=c.getContext('2d');
+    g.fillStyle='#b6b2a8'; g.fillRect(0,0,512,512);
+    // 海（暗い斑）
+    for(let i=0;i<9;i++){
+      const x=Math.random()*512,y=Math.random()*512,r=40+Math.random()*70;
+      const grd=g.createRadialGradient(x,y,0,x,y,r);
+      grd.addColorStop(0,'rgba(120,116,108,.55)');grd.addColorStop(1,'rgba(120,116,108,0)');
+      g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill();
+    }
+    // クレーター
+    for(let i=0;i<130;i++){
+      const x=Math.random()*512,y=Math.random()*512,r=2+Math.random()*9;
+      const grd=g.createRadialGradient(x,y,0,x,y,r);
+      grd.addColorStop(0,'rgba(90,86,80,.5)');grd.addColorStop(.7,'rgba(90,86,80,.15)');grd.addColorStop(1,'rgba(200,196,188,.25)');
+      g.fillStyle=grd; g.beginPath(); g.arc(x,y,r,0,Math.PI*2); g.fill();
+    }
+    return new THREE.CanvasTexture(c);
+  }
+
+  // holder: フォーカス用の疑似惑星group（world位置を毎フレーム月に同期）
+  const holder=new THREE.Group();
+  scene.add(holder);
+  const mesh=new THREE.Mesh(
+    new THREE.SphereGeometry(MOON_R,32,32),
+    new THREE.MeshLambertMaterial({map:moonTexture()})
+  );
+  holder.add(mesh);
+
+  // 月軌道リング（地球周り、薄く）
+  const orbGeo=new THREE.BufferGeometry();
+  const ORB_N=72;
+  const orbArr=new Float32Array((ORB_N+1)*3);
+  orbGeo.setAttribute('position',new THREE.BufferAttribute(orbArr,3));
+  const orbLine=new THREE.Line(orbGeo,new THREE.LineBasicMaterial({color:0x35485f,transparent:true,opacity:.3}));
+  scene.add(orbLine);
+
+  // 疑似惑星オブジェクト（既存focusOnがそのまま使える形）
+  const moonObj={name:'Moon', jp:'月', r:MOON_R, group:holder, focusElev:.35};
+
+  // ラベル＋リーダー線（既存の惑星ラベルと同一パターン）
+  const label=document.createElement('div');
+  label.className='planet-label'; label.textContent='Moon';
+  label.addEventListener('click',()=>{ if(mode==='solar') focusOn(moonObj); });
+  document.body.appendChild(label);
+  const leader=document.createElementNS('http://www.w3.org/2000/svg','line');
+  document.getElementById('leaderSvg').appendChild(leader);
+
+  // i18n: 月の名称・説明文を辞書へ注入（既存構造を変更せずエントリ追加）
+  const MOON_NAMES={ja:'月',en:'Moon',zh:'月球',tw:'月球',ko:'달',es:'Luna',fr:'Lune',de:'Mond',it:'Luna',pt:'Lua',ru:'Луна',ar:'القمر',hi:'चंद्रमा'};
+  const MOON_SUB={
+    ja:'潮汐固定 — いつも同じ面を地球に向けています · 輝面比 {p}%',
+    en:'Tidally locked — it always shows Earth the same face · {p}% illuminated',
+    zh:'潮汐锁定 — 始终以同一面朝向地球 · 被照亮 {p}%',
+    tw:'潮汐鎖定 — 始終以同一面朝向地球 · 被照亮 {p}%',
+    ko:'조석 고정 — 항상 같은 면을 지구로 향합니다 · 밝은 면 {p}%',
+    es:'Rotación síncrona — siempre muestra la misma cara a la Tierra · {p}% iluminada',
+    fr:'Rotation synchrone — elle montre toujours la même face à la Terre · {p} % éclairée',
+    de:'Gebundene Rotation — sie zeigt der Erde immer dieselbe Seite · zu {p} % beleuchtet',
+    it:'Rotazione sincrona — mostra sempre la stessa faccia alla Terra · illuminata al {p}%',
+    pt:'Rotação síncrona — mostra sempre a mesma face à Terra · {p}% iluminada',
+    ru:'Приливный захват — Луна всегда обращена к Земле одной стороной · освещено {p}%',
+    ar:'تقييد مدّي — يُظهر القمر للأرض الوجه نفسه دائمًا · مضاء بنسبة {p}%',
+    hi:'ज्वारीय बंधन — चंद्रमा सदा एक ही ओर पृथ्वी की तरफ रहता है · {p}% प्रकाशित'
+  };
+  Object.keys(I18N).forEach(k=>{
+    I18N[k].planets.Moon=MOON_NAMES[k]||'Moon';
+    I18N[k].moon=MOON_SUB[k]||MOON_SUB.en;
+  });
+
+  // 輝面比（位相角αから算出。太陽=原点）
+  const vm=new THREE.Vector3(), ve=new THREE.Vector3();
+  function illumination(){
+    vm.copy(holder.position);                 // 月（世界座標）
+    ve.copy(earthPlanet.group.position);      // 地球
+    const sunDir=vm.clone().multiplyScalar(-1).normalize();   // 月→太陽
+    const earthDir=ve.clone().sub(vm).normalize();            // 月→地球
+    return Math.round((1+sunDir.dot(earthDir))/2*100);
+  }
+
+  return {
+    obj:moonObj, illumination,
+    update(){
+      // 公転（simT基準: フォーカスで停止する既存挙動と統一）
+      const ang=moonAng0+simT*MOON_SPD;
+      const e=earthPlanet.group.position;
+      holder.position.set(e.x+Math.cos(ang)*MOON_ORBIT, 0, e.z+Math.sin(ang)*MOON_ORBIT);
+      // 軌道リングを地球位置に追従
+      for(let i=0;i<=ORB_N;i++){
+        const a=i/ORB_N*Math.PI*2;
+        orbArr[i*3]=e.x+Math.cos(a)*MOON_ORBIT; orbArr[i*3+1]=0; orbArr[i*3+2]=e.z+Math.sin(a)*MOON_ORBIT;
+      }
+      orbGeo.attributes.position.needsUpdate=true;
+      // 潮汐固定: 常に同じ面を地球へ（月フォーカス中はドラッグ操作を優先し固定を解除）
+      if(focused!==moonObj) mesh.lookAt(e);
+      // ラベル＋リーダー線（惑星と同一ロジック）
+      tmp.copy(holder.position).project(camera);
+      const vis=tmp.z<1 && blend<.5;
+      label.style.opacity=vis?1:0;
+      if(vis){
+        const sx=(tmp.x*.5+.5)*innerWidth, sy=(-tmp.y*.5+.5)*innerHeight;
+        const lx=sx+20, ly=sy-22;
+        label.style.left=lx+'px'; label.style.top=ly+'px';
+        const dx=sx-lx, dy=sy-ly, len=Math.hypot(dx,dy)||1, gap=7;
+        leader.setAttribute('x1',lx); leader.setAttribute('y1',ly+4);
+        leader.setAttribute('x2',sx-dx/len*gap); leader.setAttribute('y2',sy-dy/len*gap);
+        leader.style.opacity=.45;
+      }else{
+        leader.style.opacity=0;
+      }
+    }
+  };
+})();
+
+/* ============ camera & interaction ============ */
+let mode='solar';           // 'solar' | 'focus'
+let focused=null;           // planet
+let timeScale=1, timeScaleT=1;
+let simT=Math.random()*100;
+
+// solar view orbit params
+let camTheta=.6, camPhi=1.15, camDist=46, camDistT=46;
+// focus view rotate params
+let rotY=Math.PI*.15, rotX=.2, vY=0, focusDist=1, focusDistT=1;
+// transition
+let blend=0, blendT=0;      // 0=solar 1=focus
+const camPos=new THREE.Vector3(), lookAt=new THREE.Vector3();
+const solarPos=new THREE.Vector3(), focusPos=new THREE.Vector3();
+
+let dragging=false,px=0,py=0,moved=0;
+canvas.addEventListener('pointerdown',e=>{dragging=true;moved=0;px=e.clientX;py=e.clientY;canvas.classList.add('dragging');canvas.setPointerCapture(e.pointerId);});
+addEventListener('pointermove',e=>{
+  if(!dragging)return;
+  const dx=e.clientX-px,dy=e.clientY-py;px=e.clientX;py=e.clientY;moved+=Math.abs(dx)+Math.abs(dy);
+  if(mode==='solar'){
+    camTheta-=dx*.004;
+    camPhi=Math.max(.25,Math.min(1.45,camPhi-dy*.003));
+  }else{
+    rotY+=dx*.005; vY=dx*.005;
+    rotX=Math.max(-1.2,Math.min(1.2,rotX+dy*.003));
+  }
+});
+addEventListener('pointerup',e=>{
+  canvas.classList.remove('dragging');
+  if(dragging&&moved<6) handleClick(e);
+  dragging=false;
+});
+addEventListener('wheel',e=>{
+  if(mode==='solar') camDistT=Math.max(10,Math.min(90,camDistT+e.deltaY*.04));
+  else focusDistT=Math.max(.55,Math.min(4,focusDistT+e.deltaY*.002));
+},{passive:true});
+
+const ray=new THREE.Raycaster(), mouse=new THREE.Vector2();
+function handleClick(e){
+  if(mode!=='solar')return;
+  mouse.x=e.clientX/innerWidth*2-1; mouse.y=-(e.clientY/innerHeight)*2+1;
+  ray.setFromCamera(mouse,camera);
+  const hits=ray.intersectObjects(PLANETS.map(p=>p.hit));
+  if(hits.length){
+    const p=PLANETS.find(q=>q.hit===hits[0].object);
+    focusOn(p);
+  }
+}
+function focusOn(p){
+  mode='focus'; focused=p; blendT=1; timeScaleT=0;
+  focusDistT=p.r*(p.isEarth?5.5:6.5); focusDist=focusDistT+p.r*4;
+  document.getElementById('backBtn').classList.add('show');
+  document.getElementById('cityBox').classList.toggle('show',!!p.isEarth);
+  document.getElementById('marsBox').classList.toggle('show',p.name==='Mars');
+  updateReadout(); updateSubline();
+}
+document.getElementById('backBtn').addEventListener('click',()=>{
+  mode='solar'; blendT=0; timeScaleT=1;
+  document.getElementById('backBtn').classList.remove('show');
+  document.getElementById('cityBox').classList.remove('show');
+  document.getElementById('marsBox').classList.remove('show');
+  updateReadout(); updateSubline();
+});
+
+function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
+addEventListener('resize',resize);resize();
+
+/* ---- v15: 初期視点 — 基準線（太陽から +X）を画面の BASE_CLOCK 時方向へ向け、全惑星の軌道が収まる距離に引く ---- */
+const BASE_CLOCK=11;                       // 12=真上, 11=やや左上
+(function fitInitialView(){
+  const elev=Math.PI/2-camPhi;              // カメラの仰角
+  const alpha=(12-BASE_CLOCK)*Math.PI/6;    // 真上からの左回り角
+  camTheta=Math.PI+Math.atan(Math.tan(alpha)*Math.sin(elev));
+  const R=Math.max(...PLANETS.map(p=>p.orbit))+1.2;
+  const c=camera.clone(), v=new THREE.Vector3();
+  const fits=d=>{
+    c.position.set(d*Math.sin(camPhi)*Math.cos(camTheta),d*Math.cos(camPhi),d*Math.sin(camPhi)*Math.sin(camTheta));
+    c.lookAt(0,0,0); c.updateMatrixWorld(); c.updateProjectionMatrix();
+    for(let i=0;i<72;i++){
+      const a=i/72*Math.PI*2; v.set(R*Math.cos(a),0,R*Math.sin(a)).project(c);
+      if(Math.abs(v.x)>.94||v.y>.80||v.y<-.62) return false;   // 下は再生ロール・SOLAR SYSTEM 表示の分を空ける
+    }
+    return true;
+  };
+  let lo=10, hi=200;                        // 縦長画面ではズーム上限90を超えることがある（初期値のみ）
+  if(fits(lo)) hi=lo; else for(let k=0;k<24;k++){const m=(lo+hi)/2; if(fits(m)) hi=m; else lo=m;}
+  camDist=camDistT=hi;
+})();
+
+/* ============ loop ============ */
+const clock=new THREE.Clock();
+const tmp=new THREE.Vector3(), off=new THREE.Vector3();
+const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+(function loop(){
+  requestAnimationFrame(loop);
+  const dt=Math.min(clock.getDelta(),.05), t=clock.elapsedTime;
+
+  timeScale+=(timeScaleT-timeScale)*.04;
+  simT+=dt*timeScale*(reduced?0:1);
+  blend+=(blendT-blend)*.045;
+  camDist+=(camDistT-camDist)*.08;
+  focusDist+=(focusDistT-focusDist)*.08;
+
+  // planets orbit
+  PLANETS.forEach(p=>{
+    p.angle+=0; // angle derives from simT
+    const a=p.angle0===undefined?(p.angle0=p.angle):0;
+    const ang=p.angle0+simT*K/p.period;
+    p.group.position.set(p.orbit*Math.cos(ang),0,p.orbit*Math.sin(ang));
+  });
+
+  // sun breath (5s) — フォーカス中は減光してカーテン状の被りを抑える
+  const b=1+Math.sin(t*Math.PI*2/5)*.03;
+  sunGlow.scale.set(16*b,16*b,1);
+  sunGlow.material.opacity=1-blend*.75;
+  starlink.update(t);
+  marsMission.update(t);
+  marsAmbient.update(t,dt);
+  jupiterAmbient.update(t);
+  triviaAmbient.update(t,dt);
+  moonAmbient.update();
+  // 土星の環のきらめき（バンドごとに位相をずらした緩やかな明滅）
+  PLANETS.forEach(p=>{
+    if(p.ringMats) p.ringMats.forEach(m=>{m.opacity=.72+Math.sin(t*.9+m.userData.phase)*.16;});
+  });
+
+  // focus rotation (earth spin)
+  if(mode==='focus'&&focused){
+    if(!dragging){vY*=.94;rotY+=vY+(reduced?0:.0012);}
+    focused.group.rotation.set(rotX,rotY,0);
+  }else if(earthPlanet){
+    earthPlanet.group.rotation.y+=dt*.05*timeScale;
+  }
+
+  // camera blend
+  solarPos.set(
+    camDist*Math.sin(camPhi)*Math.cos(camTheta),
+    camDist*Math.cos(camPhi),
+    camDist*Math.sin(camPhi)*Math.sin(camTheta)
+  );
+  if(focused){
+    off.set(Math.sin(camTheta),focused.focusElev||.35,Math.cos(camTheta)).normalize().multiplyScalar(focusDist);
+    focusPos.copy(focused.group.position).add(off);
+  }
+  camPos.copy(solarPos).lerp(focused?focusPos:solarPos,blend);
+  lookAt.set(0,0,0).lerp(focused?focused.group.position:lookAt.set(0,0,0),blend);
+  camera.position.copy(camPos);
+  camera.lookAt(lookAt);
+
+  // planet labels + leader lines
+  PLANETS.forEach(p=>{
+    tmp.copy(p.group.position).project(camera);
+    const vis=tmp.z<1 && blend<.5;
+    p.label.style.opacity=vis?1:0;
+    if(vis){
+      const sx=(tmp.x*.5+.5)*innerWidth, sy=(-tmp.y*.5+.5)*innerHeight;
+      // ラベルは実体の右上に一定距離オフセット
+      const lx=sx+26, ly=sy-30;
+      p.label.style.left=lx+'px';
+      p.label.style.top =ly+'px';
+      // リーダー線: ラベル左下 → 実体のすぐ外側まで（控えめに途中で止める）
+      const dx=sx-lx, dy=sy-ly, len=Math.hypot(dx,dy)||1;
+      const gap=10; // 実体の手前で止める余白
+      p.leader.setAttribute('x1',lx);
+      p.leader.setAttribute('y1',ly+4);
+      p.leader.setAttribute('x2',sx-dx/len*gap);
+      p.leader.setAttribute('y2',sy-dy/len*gap);
+      p.leader.style.opacity=.45;
+    }else{
+      p.leader.style.opacity=0;
+    }
+  });
+
+  // city markers (visible only when focused on earth & close)
+  const showCities=mode==='focus'&&focused&&focused.isEarth&&blend>.7;
+  markers.forEach(m=>{
+    const s=(RE*.5)+(Math.sin(t*3+m.phase)*RE*.12);
+    m.sprite.scale.set(s,s,1);
+    if(!showCities){m.label.style.opacity=0;return;}
+    tmp.copy(m.sprite.position);
+    focused.group.localToWorld(tmp);
+    const toCam=tmp.clone().sub(camera.position).normalize();
+    const outward=tmp.clone().sub(focused.group.position).normalize();
+    const facing=outward.dot(toCam)<-0.15;
+    tmp.project(camera);
+    m.label.style.opacity=facing?1:0;
+    m.label.style.left=((tmp.x*.5+.5)*innerWidth)+'px';
+    m.label.style.top =((-tmp.y*.5+.5)*innerHeight)+'px';
+  });
+
+  renderer.render(scene,camera);
+})();
+
+/* ============ Planet Orgel: 観測用の公開口（読み取りのみ。動きのコードは無変更） ============ */
+marsMission.setVisible(false);
+window.__ORRERY__=Object.freeze({THREE,scene,camera,planets:PLANETS,getSimT:()=>simT,getMode:()=>mode});
+})();
+</script>
+
+<!-- ============ Planet Orgel UI ============ -->
+<div id="orgel" class="fade-in d2">
+  <button class="og-head" id="ogHead" aria-expanded="true"><span id="ogTitle">Planet Orgel</span><span class="og-caret">▾</span></button>
+  <div class="og-body">
+    <label class="toggle">
+      <input type="checkbox" id="ogSound">
+      <span class="track"><span class="knob"></span></span>
+      <span class="toggle-label" id="ogSoundLbl">Sound</span>
+    </label>
+    <div class="og-hint" id="ogHint"></div>
+    <div class="og-seg" role="group">
+      <button id="ogHarm" class="on" aria-pressed="true">Harmonics</button>
+      <button id="ogPenta" aria-pressed="false">Penta</button>
+      <button id="ogJust" aria-pressed="false">Musica universalis</button>
+    </div>
+    <div class="og-note" id="ogNote"></div>
+    <ul class="og-legend" id="ogLegend"></ul>
+    <div class="og-row"><span class="og-lbl" id="ogVolLbl">Vol</span><input type="range" id="ogVol" min="0" max="100" value="70" aria-label="volume"></div>
+    <div class="og-row og-btns">
+      <button class="og-btn" id="ogRec"><i class="og-dot"></i><span id="ogRecLbl">Rec</span></button>
+      <button class="og-btn" id="ogSleep"><span id="ogSleepLbl">Sleep</span></button>
+    </div>
+    <div class="og-msg" id="ogMsg"></div>
+    <label class="toggle">
+      <input type="checkbox" id="ogComb" checked>
+      <span class="track"><span class="knob"></span></span>
+      <span class="toggle-label" id="ogCombLbl">Line</span>
+    </label>
+  </div>
+</div>
+<div id="ogAlign"><b>Alignment</b><small id="ogAlignSub"></small></div>
+<canvas id="ogRoll"></canvas>
+<script>
+/* =====================================================================
+   PLANET ORGEL — 観測型アドオン
+   元の公転・自転・衛星コードには触れない。window.__ORRERY__ が公開する
+   惑星の位置を「読むだけ」で、基準線（太陽から +X 方向）の通過を検出して鳴らす。
+   ===================================================================== */
+(function(){
+"use strict";
+const O=window.__ORRERY__;
+if(!O||!O.THREE) return;
+const {THREE,scene,planets}=O;
+const TAU=Math.PI*2;
+const $=id=>document.getElementById(id);
+
+/* ---------------- 文言 ---------------- */
+const TXT={
+  ja:{title:'惑星オルゴール',sound:'音を鳴らす',hint:'スイッチを入れると、基準線を通る惑星が鳴ります',
+      harm:'倍音列',penta:'ペンタ',just:'天球の音楽',
+      harmNote:'C1 の自然倍音（×2〜×24）— どう重なっても1つの和音に溶けます',
+      pentaNote:'C メジャー・ペンタトニック（外惑星4つは鐘）',
+      justNote:'公転周期の逆数比を純正律へ — 比は地球を 1 とした値',
+      vol:'音量',rec:'録音',stop:'停止',sleep:'スリープ',off:'オフ',min:'分',fading:'消音中…',
+      comb:'基準線',bell:'鐘',saved:'保存しました: ',norec:'この環境では録音できません',
+      alignSub:'{list} が10秒以内に共鳴'},
+  en:{title:'Planet Orgel',sound:'Sound',hint:'Turn on — planets ring as they cross the line',
+      harm:'Harmonics',penta:'Penta',just:'Celestial',
+      harmNote:'Natural harmonics of C1 (×2–×24) — any overlap blends into one chord',
+      pentaNote:'C major pentatonic (outer four are bells)',
+      justNote:'Inverse orbital-period ratios in just intonation — Earth = 1',
+      vol:'Vol',rec:'Rec',stop:'Stop',sleep:'Sleep',off:'Off',min:'min',fading:'Fading…',
+      comb:'Line',bell:'bell',saved:'Saved: ',norec:'Recording is not supported here',
+      alignSub:'{list} rang within 10 s'}
+};
+let lang='ja';
+const L=()=>TXT[lang]||TXT.en;
+
+/* ---------------- 音律 ---------------- */
+const BELL=new Set(['Jupiter','Saturn','Uranus','Neptune']);
+const PENTA={Mercury:880.00,Venus:783.99,Earth:659.26,Mars:587.33,Jupiter:130.81,Saturn:98.00,Uranus:82.41,Neptune:65.41};
+const JUST_RATIOS=[[1,1],[16,15],[9,8],[6,5],[5,4],[4,3],[45,32],[3,2],[8,5],[5,3],[16,9],[15,8],[2,1]];
+const gcd=(a,b)=>b?gcd(b,a%b):a;
+// 公転周期の逆数（角速度）の比を地球基準でとり、log2 を 0.4 倍に圧縮して可聴域に収め、最寄りの純正比に吸着
+const JUST=(function(){
+  const BASE=523.25, COMP=0.4, out={};
+  planets.forEach(p=>{
+    const x=Math.pow(2,Math.log2(1/p.period)*COMP);
+    let reg=Math.floor(Math.log2(x)); const frac=x/Math.pow(2,reg);
+    let best=JUST_RATIOS[0],bd=1e9;
+    JUST_RATIOS.forEach(r=>{const d=Math.abs(Math.log2(frac)-Math.log2(r[0]/r[1])); if(d<bd){bd=d;best=r;}});
+    if(best[0]===2){best=[1,1];reg++;}
+    let n=best[0],d=best[1];
+    if(reg>=0) n*=Math.pow(2,reg); else d*=Math.pow(2,-reg);
+    const g=gcd(n,d);
+    out[p.name]={f:BASE*n/d, label:(n/g)+'/'+(d/g)};
+  });
+  return out;
+})();
+// 自然倍音列（既定）: C1=32.703Hz の整数倍。火星の ×14 は平均律より31セント低い
+const H1=32.703;
+const HARM={Mercury:24,Venus:20,Earth:16,Mars:14,Jupiter:6,Saturn:4,Uranus:3,Neptune:2};
+let tuning='harm';
+const NOTE_NAMES=['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'];
+function noteName(f){const m=Math.round(12*Math.log2(f/440)+69);return NOTE_NAMES[(m%12+12)%12]+(Math.floor(m/12)-1);}
+function noteFor(name){return tuning==='harm'?H1*HARM[name]:tuning==='just'?JUST[name].f:PENTA[name];}
+function noteLabel(name){return tuning==='harm'?('×'+HARM[name]):tuning==='just'?JUST[name].label:noteName(PENTA[name]);}
+
+/* ---------------- WebAudio ---------------- */
+let ctx=null, master, comp, dry, sendS, sendB, revRet, recDest=null;
+let soundOn=false, vol=.7;
+function impulse(sec,decay){
+  const sr=ctx.sampleRate, len=Math.floor(sr*sec), b=ctx.createBuffer(2,len,sr), pre=Math.floor(sr*.012);
+  for(let c=0;c<2;c++){
+    const d=b.getChannelData(c);
+    for(let i=0;i<len;i++){
+      const t=i/len;
+      d[i]=(Math.random()*2-1)*Math.pow(1-t,decay)*(i<pre?i/pre:1);
+    }
+  }
+  return b;
+}
+function ensureAudio(){
+  if(ctx) return ctx;
+  const AC=window.AudioContext||window.webkitAudioContext;
+  if(!AC) return null;
+  ctx=new AC();
+  master=ctx.createGain(); master.gain.value=0;
+  comp=ctx.createDynamicsCompressor();
+  comp.threshold.value=-16; comp.knee.value=14; comp.ratio.value=4; comp.attack.value=.004; comp.release.value=.3;
+  master.connect(comp); comp.connect(ctx.destination);
+  if(ctx.createMediaStreamDestination){ recDest=ctx.createMediaStreamDestination(); comp.connect(recDest); }
+  dry=ctx.createGain(); dry.connect(master);
+  sendS=ctx.createGain(); sendB=ctx.createGain();
+  const cvS=ctx.createConvolver(); cvS.buffer=impulse(3.4,3.0);
+  const cvB=ctx.createConvolver(); cvB.buffer=impulse(8.5,2.2);
+  revRet=ctx.createGain(); revRet.gain.value=1;
+  sendS.connect(cvS); sendB.connect(cvB); cvS.connect(revRet); cvB.connect(revRet); revRet.connect(master);
+  return ctx;
+}
+function voiceOut(vel,sendGain,send){
+  const out=ctx.createGain(); out.gain.value=vel;
+  out.connect(dry);
+  const s=ctx.createGain(); s.gain.value=sendGain; out.connect(s); s.connect(send);
+  return out;
+}
+function partial(out,f,amp,attack,decay,when){
+  if(f>ctx.sampleRate/2.2) return;
+  const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=f;
+  const g=ctx.createGain();
+  g.gain.setValueAtTime(0,when);
+  g.gain.linearRampToValueAtTime(amp,when+attack);
+  g.gain.exponentialRampToValueAtTime(.0001,when+attack+decay);
+  o.connect(g); g.connect(out);
+  o.start(when); o.stop(when+attack+decay+.05);
+}
+// オルゴール: 基音＋高次倍音（櫛歯の非整数倍音を含む）＋小リバーブ
+function pluck(f,when,vel){
+  const out=voiceOut(vel,.42,sendS);
+  [[1,1,2.4],[2,.30,1.1],[3,.11,.6],[4.02,.07,.35],[6.27,.05,.12],[9.4,.025,.06]]
+    .forEach(([m,a,d])=>partial(out,f*m,a,.004,d,when));
+}
+// 鐘: 低音のハム＋ストライク音、長い残響
+function bell(f,when,vel){
+  const out=voiceOut(vel,.9,sendB);
+  [[.5,.5,9],[1,1,7],[1.003,.35,7],[1.19,.3,4.5],[1.5,.28,3.6],[2,.4,3.2],[2.52,.18,2.2],[3.01,.12,1.6],[4.1,.06,.8]]
+    .forEach(([m,a,d])=>partial(out,f*m,a,.006,d,when));
+}
+// 直列ボーナス: 和音のシマー＋残響の持ち上げ＋きらめき
+function shimmer(freqs,when){
+  const g0=revRet.gain;
+  g0.cancelScheduledValues(when); g0.setValueAtTime(g0.value,when);
+  g0.linearRampToValueAtTime(2.0,when+.4); g0.linearRampToValueAtTime(1,when+8);
+  const lift=f=>{let x=f;while(x<700)x*=2;return x;};
+  freqs.forEach((f,i)=>{
+    const hf=lift(f);
+    [[1,.05],[2,.022]].forEach(([m,a])=>{
+      const t0=when+i*.09;
+      const o=ctx.createOscillator(); o.type='sine'; o.frequency.value=hf*m;
+      const lfo=ctx.createOscillator(); lfo.frequency.value=4.6+i*.7;
+      const lg=ctx.createGain(); lg.gain.value=hf*m*.004;
+      lfo.connect(lg); lg.connect(o.frequency);
+      const g=ctx.createGain();
+      g.gain.setValueAtTime(0,t0); g.gain.linearRampToValueAtTime(a,t0+.5); g.gain.exponentialRampToValueAtTime(.0001,t0+5.8);
+      o.connect(g); g.connect(dry); g.connect(sendB);
+      o.start(t0); lfo.start(t0); o.stop(t0+6); lfo.stop(t0+6);
+    });
+  });
+  const top=freqs.map(f=>{let x=f;while(x<1000)x*=2;return x;}).sort((a,b)=>a-b);
+  for(let k=0;k<8;k++) pluck(top[k%top.length]*(k>=top.length?2:1),when+.18+k*.11,.09);
+}
+function setSound(on){
+  soundOn=on; $('ogSound').checked=on;
+  if(on){
+    if(!ensureAudio()){ soundOn=false; $('ogSound').checked=false; return; }
+    if(ctx.state!=='running') ctx.resume();
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setValueAtTime(master.gain.value,ctx.currentTime);
+    master.gain.linearRampToValueAtTime(vol,ctx.currentTime+.3);
+  }else if(ctx){
+    master.gain.cancelScheduledValues(ctx.currentTime);
+    master.gain.setValueAtTime(master.gain.value,ctx.currentTime);
+    master.gain.linearRampToValueAtTime(0,ctx.currentTime+.4);
+  }
+  refreshText();
+}
+
+/* ---------------- 3D: 基準線（櫛）・ドット・軌跡 ---------------- */
+function radialTex(stops){
+  const c=document.createElement('canvas'); c.width=c.height=64;
+  const g=c.getContext('2d'), grd=g.createRadialGradient(32,32,0,32,32,32);
+  stops.forEach(s=>grd.addColorStop(s[0],s[1]));
+  g.fillStyle=grd; g.fillRect(0,0,64,64);
+  return new THREE.CanvasTexture(c);
+}
+const dotTex=radialTex([[0,'rgba(255,255,255,1)'],[.35,'rgba(255,255,255,.75)'],[1,'rgba(255,255,255,0)']]);
+const ringTex=radialTex([[0,'rgba(255,255,255,0)'],[.72,'rgba(255,255,255,0)'],[.84,'rgba(255,255,255,.9)'],[1,'rgba(255,255,255,0)']]);
+
+const comb=new THREE.Group(); scene.add(comb);
+const combMat=new THREE.LineBasicMaterial({color:0x6fd6ff,transparent:true,opacity:.16,depthWrite:false});
+const maxOrbit=Math.max(...planets.map(p=>p.orbit));
+comb.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(2.6,0,0),new THREE.Vector3(maxOrbit+2,0,0)]),combMat));
+const tines={};
+planets.forEach(p=>{
+  const m=new THREE.SpriteMaterial({map:dotTex,color:0x6fd6ff,transparent:true,opacity:.35,depthWrite:false,blending:THREE.AdditiveBlending});
+  const s=new THREE.Sprite(m); s.position.set(p.orbit,0,0); s.scale.set(.32,.32,1);
+  comb.add(s); tines[p.name]={s,flash:0};
+});
+let combBoost=0;
+
+const dots=[];
+function addDot(pos,color,size,life,ring){
+  const m=new THREE.SpriteMaterial({map:dotTex,color,transparent:true,opacity:1,depthWrite:false,blending:THREE.AdditiveBlending});
+  const s=new THREE.Sprite(m); s.position.copy(pos); s.scale.set(size,size,1); scene.add(s);
+  let r=null;
+  if(ring){
+    const rm=new THREE.SpriteMaterial({map:ringTex,color,transparent:true,opacity:.9,depthWrite:false,blending:THREE.AdditiveBlending});
+    r=new THREE.Sprite(rm); r.position.copy(pos); r.scale.set(size,size,1); scene.add(r);
+  }
+  dots.push({s,r,born:performance.now(),size,life});
+  while(dots.length>260) killDot(dots.shift());
+}
+function killDot(d){
+  scene.remove(d.s); d.s.material.dispose();
+  if(d.r){ scene.remove(d.r); d.r.material.dispose(); }
+}
+const trails={};
+
+/* ---------------- 演奏履歴（ピアノロール） ---------------- */
+const roll=[], alignMarks=[];
+const rollCv=$('ogRoll'), rg=rollCv.getContext('2d');
+const ROLL_SEC=40;
+function hexCss(c,a){return 'rgba('+((c>>16)&255)+','+((c>>8)&255)+','+(c&255)+','+a+')';}
+function drawRoll(now){
+  const dpr=Math.min(devicePixelRatio||1,2), W=rollCv.clientWidth, H=rollCv.clientHeight;
+  if(rollCv.width!==Math.round(W*dpr)||rollCv.height!==Math.round(H*dpr)){rollCv.width=Math.round(W*dpr);rollCv.height=Math.round(H*dpr);}
+  rg.setTransform(dpr,0,0,dpr,0,0);
+  rg.clearRect(0,0,W,H);
+  const bg=rg.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'rgba(4,6,16,0)'); bg.addColorStop(.35,'rgba(4,6,16,.55)'); bg.addColorStop(1,'rgba(4,6,16,.8)');
+  rg.fillStyle=bg; rg.fillRect(0,0,W,H);
+  const pad=8, top=14, bot=H-4, pps=(W-pad)/ROLL_SEC, xr=W-pad;
+  // 音高順のレーン（上ほど高い音）。鍵盤の行に相当
+  const order=planets.slice().sort((a,b)=>noteFor(b.name)-noteFor(a.name)).map(p=>p.name);
+  const laneH=(bot-top)/order.length;
+  const yOf=name=>top+(order.indexOf(name)+.5)*laneH;
+  rg.font='8px "Avenir Next","Helvetica Neue",sans-serif'; rg.textBaseline='middle';
+  planets.forEach(p=>{
+    const y=Math.round(yOf(p.name))+.5;
+    rg.strokeStyle='rgba(95,114,145,.16)'; rg.lineWidth=1;
+    rg.beginPath(); rg.moveTo(36,y); rg.lineTo(xr,y); rg.stroke();
+  });
+  // Alignment の縦線
+  for(let i=alignMarks.length-1;i>=0;i--){
+    const age=(now-alignMarks[i])/1000; if(age>ROLL_SEC){alignMarks.splice(i,1);continue;}
+    const x=xr-age*pps;
+    const g=rg.createLinearGradient(0,top-8,0,bot);
+    g.addColorStop(0,'rgba(111,214,255,0)'); g.addColorStop(.5,'rgba(111,214,255,.55)'); g.addColorStop(1,'rgba(111,214,255,.1)');
+    rg.fillStyle=g; rg.fillRect(x-1,top-8,2,bot-top+8);
+    rg.fillStyle='rgba(111,214,255,.7)'; rg.fillText('ALIGN',x+4,top-2);
+  }
+  // 音符
+  for(let i=roll.length-1;i>=0;i--){
+    const n=roll[i], age=(now-n.t)/1000;
+    if(age>ROLL_SEC+6){roll.splice(i,1);continue;}
+    const x=xr-age*pps, len=(n.bell?4:.9)*pps, y=yOf(n.name), h=n.bell?Math.min(5,laneH*.7):Math.min(3,laneH*.45);
+    const g=rg.createLinearGradient(x,0,x+len,0);
+    g.addColorStop(0,hexCss(n.color,.95)); g.addColorStop(1,hexCss(n.color,0));
+    rg.fillStyle=g; rg.fillRect(x,y-h/2,len,h);
+    rg.fillStyle=hexCss(n.color,1); rg.beginPath(); rg.arc(x,y,h*.75,0,TAU); rg.fill();
+    if(age<.5){ rg.fillStyle=hexCss(n.color,(.5-age)); rg.beginPath(); rg.arc(x,y,4+age*18,0,TAU); rg.fill(); }
+  }
+  // ラベル（左端）
+  planets.forEach(p=>{
+    const y=yOf(p.name);
+    rg.fillStyle=hexCss(p.color,.75);
+    rg.fillText(p.name.slice(0,3).toUpperCase(),8,y);
+  });
+  // 再生位置
+  rg.fillStyle='rgba(111,214,255,.5)'; rg.fillRect(xr,top-4,1,bot-top+4);
+}
+
+/* ---------------- 凡例 ---------------- */
+function buildLegend(){
+  const ul=$('ogLegend'); ul.innerHTML='';
+  planets.forEach(p=>{
+    const li=document.createElement('li'); li.id='ogL-'+p.name;
+    const i=document.createElement('i'); i.style.background=hexCss(p.color,1); i.style.color=hexCss(p.color,1);
+    li.appendChild(i);
+    li.appendChild(document.createTextNode(lang==='ja'?p.jp:p.name));
+    if(BELL.has(p.name)){const e=document.createElement('em'); e.textContent=L().bell; li.appendChild(e);}
+    const b=document.createElement('b'); b.textContent=noteLabel(p.name); li.appendChild(b);
+    ul.appendChild(li);
+  });
+}
+function flashLegend(name){
+  const li=$('ogL-'+name); if(!li) return;
+  li.classList.add('hit'); setTimeout(()=>li.classList.remove('hit'),60);
+}
+
+/* ---------------- Alignment ---------------- */
+let recent=[];
+function alignment(list,now){
+  alignMarks.push(now); combBoost=1;
+  const names=list.map(r=>{const p=planets.find(q=>q.name===r.name);return lang==='ja'?p.jp:p.name;});
+  const sep=lang==='ja'?'・':' · ';
+  $('ogAlignSub').textContent=L().alignSub.replace('{list}',names.join(sep));
+  const el=$('ogAlign'); el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+  if(soundOn&&ctx) shimmer(list.map(r=>r.f),ctx.currentTime+.05);
+}
+
+/* ---------------- 観測（角度を読むだけ） ---------------- */
+const watch=planets.map(p=>({p,u:0,last:0,ready:false}));
+function onCross(p,pos,now){
+  const f=noteFor(p.name), isBell=BELL.has(p.name);
+  if(soundOn&&ctx&&ctx.state==='running') (isBell?bell:pluck)(f,ctx.currentTime+.01,isBell?.3:.26);
+  const col=new THREE.Color(p.color);
+  addDot(pos,col,Math.max(p.r*3.2,.55),isBell?16000:10000,true);
+  trails[p.name]={until:now+(isBell?2600:1500),last:0,col,size:Math.max(p.r*1.4,.22)};
+  roll.push({t:now,f,name:p.name,color:p.color,bell:isBell});
+  if(tines[p.name]) tines[p.name].flash=1;
+  flashLegend(p.name);
+  recent.push({t:now,name:p.name,f});
+  recent=recent.filter(r=>now-r.t<=10000);
+  const uniq=[]; recent.forEach(r=>{if(!uniq.find(u=>u.name===r.name)) uniq.push(r);});
+  if(uniq.length>=3){ alignment(uniq,now); recent=[]; }
+}
+function observe(now){
+  watch.forEach(w=>{
+    const pos=w.p.group.position;
+    if(pos.x===0&&pos.z===0) return;           // 初回フレーム前
+    const a=Math.atan2(pos.z,pos.x);
+    if(!w.ready){w.u=a;w.last=a;w.ready=true;return;}
+    let d=a-w.last; if(d>Math.PI)d-=TAU; else if(d<-Math.PI)d+=TAU;
+    w.last=a;
+    const before=Math.floor(w.u/TAU); w.u+=d;
+    if(Math.floor(w.u/TAU)>before) onCross(w.p,pos,now);
+  });
+}
+
+/* ---------------- フレーム ---------------- */
+let isFocus=false;
+function frame(){
+  requestAnimationFrame(frame);
+  const now=performance.now();
+  observe(now);
+  // 軌跡: 鳴った直後、惑星の進路に小さなドットを置いていく
+  planets.forEach(p=>{
+    const tr=trails[p.name];
+    if(tr&&now<tr.until&&now-tr.last>70){ tr.last=now; addDot(p.group.position,tr.col,tr.size,4200,false); }
+  });
+  for(let i=dots.length-1;i>=0;i--){
+    const d=dots[i], k=(now-d.born)/d.life;
+    if(k>=1){killDot(d);dots.splice(i,1);continue;}
+    d.s.material.opacity=Math.pow(1-k,1.6);
+    const sz=d.size*(1-k*.35); d.s.scale.set(sz,sz,1);
+    if(d.r){
+      const rk=Math.min(1,(now-d.born)/1800);
+      d.r.material.opacity=.9*(1-rk);
+      const rs=d.size*(1+rk*3.5); d.r.scale.set(rs,rs,1);
+    }
+  }
+  Object.values(tines).forEach(t=>{ t.flash*=.94; t.s.material.opacity=.35+t.flash*.65; const s=.32+t.flash*.5; t.s.scale.set(s,s,1); });
+  combBoost*=.985; combMat.opacity=.16+combBoost*.5;
+  const f=O.getMode()==='focus';
+  if(f!==isFocus){isFocus=f;document.body.classList.toggle('og-focus',f);}
+  drawRoll(now);
+}
+
+/* ---------------- 録音 ---------------- */
+let rec=null, recChunks=[], recStart=0;
+function stamp(){const d=new Date(),z=n=>String(n).padStart(2,'0');return d.getFullYear()+z(d.getMonth()+1)+z(d.getDate())+'-'+z(d.getHours())+z(d.getMinutes());}
+function msg(s){$('ogMsg').textContent=s; clearTimeout(msg.t); if(s) msg.t=setTimeout(()=>{$('ogMsg').textContent='';},6000);}
+function startRec(){
+  setSound(true);
+  if(!ctx||!recDest||!window.MediaRecorder){ msg(L().norec); return; }
+  const types=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'];
+  const type=types.find(t=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(t))||'';
+  try{ rec=new MediaRecorder(recDest.stream,type?{mimeType:type}:undefined); }
+  catch(e){ rec=null; msg(L().norec); return; }
+  recChunks=[];
+  rec.ondataavailable=e=>{if(e.data&&e.data.size) recChunks.push(e.data);};
+  rec.onstop=()=>{
+    const bt=(rec&&rec.mimeType)||type||'audio/webm';
+    const blob=new Blob(recChunks,{type:bt});
+    const ext=/mp4/.test(bt)?'m4a':/ogg/.test(bt)?'ogg':'webm';
+    const name='planet-orgel-'+stamp()+'.'+ext;
+    const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name;
+    document.body.appendChild(a); a.click();
+    setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},5000);
+    msg(L().saved+name); rec=null; refreshText();
+  };
+  rec.start(1000); recStart=performance.now(); refreshText();
+}
+function stopRec(){ if(rec&&rec.state!=='inactive') rec.stop(); }
+
+/* ---------------- スリープタイマー ---------------- */
+const SLEEP_STEPS=[0,15,30,60];
+let sleepIdx=0, sleepEnd=0, fading=false;
+const FADE_SEC=20;
+function mmss(ms){const s=Math.max(0,Math.ceil(ms/1000));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');}
+function tick(){
+  const now=performance.now();
+  if(sleepEnd&&!fading&&now>=sleepEnd){
+    fading=true;
+    if(ctx&&soundOn){
+      master.gain.cancelScheduledValues(ctx.currentTime);
+      master.gain.setValueAtTime(master.gain.value,ctx.currentTime);
+      master.gain.linearRampToValueAtTime(0,ctx.currentTime+FADE_SEC);
+    }
+    setTimeout(()=>{ stopRec(); fading=false; sleepEnd=0; sleepIdx=0; setSound(false); },FADE_SEC*1000);
+  }
+  refreshButtons(now);
+}
+function refreshButtons(now){
+  now=now||performance.now();
+  const t=L();
+  $('ogRec').classList.toggle('on',!!rec);
+  $('ogRecLbl').textContent=rec?(t.stop+' '+mmss(now-recStart)):t.rec;
+  $('ogSleep').classList.toggle('on',!!sleepEnd);
+  $('ogSleepLbl').textContent=fading?t.fading:(sleepEnd?('⏾ '+mmss(sleepEnd-now)):(t.sleep+' · '+t.off));
+}
+function refreshText(){
+  const t=L();
+  $('ogTitle').textContent=t.title;
+  $('ogSoundLbl').textContent=t.sound;
+  $('ogHint').textContent=soundOn?'':t.hint;
+  $('ogHarm').textContent=t.harm; $('ogPenta').textContent=t.penta; $('ogJust').textContent=t.just;
+  $('ogNote').textContent=tuning==='harm'?t.harmNote:tuning==='just'?t.justNote:t.pentaNote;
+  $('ogVolLbl').textContent=t.vol;
+  $('ogCombLbl').textContent=t.comb;
+  buildLegend(); refreshButtons();
+}
+
+/* ---------------- UI 結線 ---------------- */
+$('ogSound').addEventListener('change',e=>setSound(e.target.checked));
+function setTuning(m){
+  tuning=m;
+  $('ogHarm').classList.toggle('on',m==='harm'); $('ogHarm').setAttribute('aria-pressed',m==='harm');
+  $('ogPenta').classList.toggle('on',m==='penta'); $('ogPenta').setAttribute('aria-pressed',m==='penta');
+  $('ogJust').classList.toggle('on',m==='just');   $('ogJust').setAttribute('aria-pressed',m==='just');
+  refreshText();
+}
+$('ogHarm').addEventListener('click',()=>setTuning('harm'));
+$('ogPenta').addEventListener('click',()=>setTuning('penta'));
+$('ogJust').addEventListener('click',()=>setTuning('just'));
+$('ogVol').addEventListener('input',e=>{
+  vol=e.target.value/100*.95;
+  if(ctx&&soundOn&&!fading){ master.gain.cancelScheduledValues(ctx.currentTime); master.gain.setTargetAtTime(vol,ctx.currentTime,.05); }
+});
+$('ogRec').addEventListener('click',()=>{ rec?stopRec():startRec(); });
+$('ogSleep').addEventListener('click',()=>{
+  if(fading) return;
+  sleepIdx=(sleepIdx+1)%SLEEP_STEPS.length;
+  const m=SLEEP_STEPS[sleepIdx];
+  sleepEnd=m?performance.now()+m*60000:0;
+  if(m) msg(m+' '+L().min); else msg('');
+  refreshButtons();
+});
+$('ogComb').addEventListener('change',e=>{comb.visible=e.target.checked;});
+const head=$('ogHead');
+head.addEventListener('click',()=>{
+  const c=$('orgel').classList.toggle('collapsed');
+  head.setAttribute('aria-expanded',!c);
+});
+if(matchMedia('(max-width:640px)').matches){ $('orgel').classList.add('collapsed'); head.setAttribute('aria-expanded','false'); }
+const langSel=$('langSel');
+lang=langSel.value==='ja'?'ja':'en';
+langSel.addEventListener('change',()=>{lang=langSel.value==='ja'?'ja':'en';refreshText();});
+document.addEventListener('visibilitychange',()=>{ if(!document.hidden&&ctx&&soundOn&&ctx.state!=='running') ctx.resume(); });
+
+refreshText();
+setInterval(tick,500);
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
