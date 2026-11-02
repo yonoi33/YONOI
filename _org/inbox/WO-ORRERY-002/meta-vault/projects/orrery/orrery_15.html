@@ -1140,10 +1140,17 @@ addEventListener('resize',resize);resize();
    距離は最外軌道の左右が画面幅に収まるように、仰角は奥の端が TOP_Y に届くように自動で決める（手前側ははみ出してよい）。
    太陽の位置はレンズシフト（setViewOffset）で下げる。回転・ズームの中心は太陽のまま。 */
 const BASE_CLOCK=11;     // 基準線の向き。12=真上, 11=やや左上
-const SUN_Y=-.80;        // 太陽の画面上の高さ（-1=下端, 0=中央）。-1 に近いほど太陽が欠けて軌道が広く見える
+const SUN_GAP=24;        // 再生ロール上端から太陽の中心までの余白(px)。太陽を必ず画面に見せる（指標になるため）
+const SUN_MIN_PX=14;     // 太陽の見かけの半径の下限(px)。縦長画面で遠くなりすぎて点にならないように
+function sunYFor(H){     // 太陽の画面上の高さ（-1=下端, 0=中央）。再生ロールの上に出す
+  const rollH=matchMedia('(max-width:640px)').matches?76:88;
+  return Math.max(-.80,-(1-2*(rollH+SUN_GAP)/H));
+}
+let SUN_Y=sunYFor(innerHeight);
 const TOP_Y=.80;         // 軌道の上端をここまでに収める（タイトルの下あたり）
 function sunShift(){     // ソーラー表示のときだけ下げ、惑星フォーカスでは中央に戻す
   const W=innerWidth, H=innerHeight, k=1-blend;
+  SUN_Y=sunYFor(H);
   camera.setViewOffset(W,H,0,SUN_Y*H/2*k,W,H);
 }
 (function fitInitialView(){
@@ -1173,7 +1180,8 @@ function sunShift(){     // ソーラー表示のときだけ下げ、惑星フ�
   if(frame(pHi,fitD(pHi)).top>=TOP_Y) pLo=pHi;
   else for(let k=0;k<22;k++){const m=(pLo+pHi)/2; if(frame(m,fitD(m)).top>=TOP_Y) pLo=m; else pHi=m;}
   camPhi=pLo;
-  camDist=camDistT=fitD(camPhi);
+  const dMax=2.2*(innerHeight/2)/(Math.tan(camera.fov*Math.PI/360)*SUN_MIN_PX);   // 太陽半径2.2
+  camDist=camDistT=Math.min(fitD(camPhi),dMax);
   camTheta=frame(camPhi,camDist).th;
   sunShift();
   (function tick(){ sunShift(); requestAnimationFrame(tick); })();
