@@ -13,7 +13,7 @@
   *{margin:0;padding:0;box-sizing:border-box}
   html,body{height:100%;overflow:hidden;background:radial-gradient(ellipse 120% 90% at 50% 115%, var(--bg1) 0%, var(--bg0) 60%)}
   body{font-family:"Avenir Next","Helvetica Neue","Hiragino Kaku Gothic ProN",sans-serif;color:var(--ink)}
-  #scene{position:fixed;inset:0;cursor:grab}
+  #scene{position:fixed;inset:0;cursor:grab;touch-action:none}
   #scene.dragging{cursor:grabbing}
 
   .hud{position:fixed;pointer-events:none;z-index:10}
@@ -197,6 +197,13 @@
 
   #ogRoll{position:fixed;left:0;right:0;bottom:0;width:100%;height:88px;z-index:3;pointer-events:none}
 
+  @media (max-height:820px),(max-width:820px){
+    .hud-top{top:22px}
+    h1{font-size:clamp(28px,4vw,40px)}
+    .sub{margin-top:8px}
+    #orgel{top:128px}
+    .og-body{max-height:calc(100vh - 128px - 150px);overflow-y:auto;overscroll-behavior:contain}
+  }
   @media (max-width:640px){
     #orgel{top:150px;left:24px;width:min(244px,calc(100vw - 48px))}
     body.og-focus #orgel{opacity:0;pointer-events:none}
@@ -1128,27 +1135,70 @@ document.getElementById('backBtn').addEventListener('click',()=>{
 function resize(){renderer.setSize(innerWidth,innerHeight,false);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
 addEventListener('resize',resize);resize();
 
-/* ---- v15: 初期視点 — 基準線（太陽から +X）を画面の BASE_CLOCK 時方向へ向け、全惑星の軌道が収まる距離に引く ---- */
-const BASE_CLOCK=11;                       // 12=真上, 11=やや左上
+/* ---- v15: 初期視点 ----
+   太陽を画面下寄り（手前）に置き、基準線（太陽から +X）を BASE_CLOCK 時方向の奥へ伸ばす。
+   距離は最外軌道の左右が画面幅に収まるように、仰角は奥の端が TOP_Y に届くように自動で決める（手前側ははみ出してよい）。
+   太陽の位置はレンズシフト（setViewOffset）で下げる。回転・ズームの中心は太陽のまま。 */
+const BASE_CLOCK=11;     // 基準線の向き。12=真上, 11=やや左上
+const SUN_Y=-.80;        // 太陽の画面上の高さ（-1=下端, 0=中央）。-1 に近いほど太陽が欠けて軌道が広く見える
+const TOP_Y=.80;         // 軌道の上端をここまでに収める（タイトルの下あたり）
+function sunShift(){     // ソーラー表示のときだけ下げ、惑星フォーカスでは中央に戻す
+  const W=innerWidth, H=innerHeight, k=1-blend;
+  camera.setViewOffset(W,H,0,SUN_Y*H/2*k,W,H);
+}
 (function fitInitialView(){
-  const elev=Math.PI/2-camPhi;              // カメラの仰角
-  const alpha=(12-BASE_CLOCK)*Math.PI/6;    // 真上からの左回り角
-  camTheta=Math.PI+Math.atan(Math.tan(alpha)*Math.sin(elev));
+  const alpha=(12-BASE_CLOCK)*Math.PI/6;
   const R=Math.max(...PLANETS.map(p=>p.orbit))+1.2;
   const c=camera.clone(), v=new THREE.Vector3();
-  const fits=d=>{
-    c.position.set(d*Math.sin(camPhi)*Math.cos(camTheta),d*Math.cos(camPhi),d*Math.sin(camPhi)*Math.sin(camTheta));
+  c.clearViewOffset();
+  // 視点（仰角 phi・距離 d）での最外軌道の画面上の範囲。太陽を SUN_Y に下げた後の座標で返す
+  const frame=(phi,d)=>{
+    const th=Math.PI+Math.atan(Math.tan(alpha)*Math.cos(phi));
+    c.position.set(d*Math.sin(phi)*Math.cos(th),d*Math.cos(phi),d*Math.sin(phi)*Math.sin(th));
     c.lookAt(0,0,0); c.updateMatrixWorld(); c.updateProjectionMatrix();
-    for(let i=0;i<72;i++){
-      const a=i/72*Math.PI*2; v.set(R*Math.cos(a),0,R*Math.sin(a)).project(c);
-      if(Math.abs(v.x)>.94||v.y>.80||v.y<-.62) return false;   // 下は再生ロール・SOLAR SYSTEM 表示の分を空ける
+    let top=-9, side=0;
+    for(let i=0;i<120;i++){
+      const a=i/120*Math.PI*2; v.set(R*Math.cos(a),0,R*Math.sin(a)).project(c);
+      if(v.z>1) continue;
+      const y=v.y+SUN_Y;
+      top=Math.max(top,y);
+      if(y>SUN_Y) side=Math.max(side,Math.abs(v.x));     // 太陽より上側の左右の広がり
     }
-    return true;
+    return {th,top,side};
   };
-  let lo=10, hi=200;                        // 縦長画面ではズーム上限90を超えることがある（初期値のみ）
-  if(fits(lo)) hi=lo; else for(let k=0;k<24;k++){const m=(lo+hi)/2; if(fits(m)) hi=m; else lo=m;}
-  camDist=camDistT=hi;
+  const X_LIM=innerWidth>=innerHeight?.98:1.35;         // 縦長画面では左右の端は少し切れてよい
+  const fitD=phi=>{let lo=6,hi=300;for(let k=0;k<26;k++){const m=(lo+hi)/2;if(frame(phi,m).side<=X_LIM)hi=m;else lo=m;}return hi;};
+  // 仰角を下げる（phi を大きくする）ほど軌道は平たくなる。奥の端が TOP_Y に届く最も低い視点を探す
+  let pLo=.45, pHi=1.15;                                 // 仰角 約64°〜24°（1.15 は v14 の初期値）
+  if(frame(pHi,fitD(pHi)).top>=TOP_Y) pLo=pHi;
+  else for(let k=0;k<22;k++){const m=(pLo+pHi)/2; if(frame(m,fitD(m)).top>=TOP_Y) pLo=m; else pHi=m;}
+  camPhi=pLo;
+  camDist=camDistT=fitD(camPhi);
+  camTheta=frame(camPhi,camDist).th;
+  sunShift();
+  (function tick(){ sunShift(); requestAnimationFrame(tick); })();
 })();
+
+/* ---- v15: タッチ端末（Kindle Fire 等）— 2本指でズーム ---- */
+const touches=new Map(); let pinch0=0, pinchBase=0;
+const pinchDist=()=>{const [a,b]=[...touches.values()];return Math.hypot(a.x-b.x,a.y-b.y);};
+canvas.addEventListener('pointerdown',e=>{
+  if(e.pointerType!=='touch')return;
+  touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(touches.size===2){ pinch0=pinchDist(); pinchBase=mode==='solar'?camDistT:focusDistT; dragging=false; }
+});
+addEventListener('pointermove',e=>{
+  if(!touches.has(e.pointerId))return;
+  touches.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(touches.size<2)return;
+  dragging=false;                                         // 2本指の間は回転させない
+  const r=pinch0/Math.max(1,pinchDist());
+  if(mode==='solar') camDistT=Math.max(8,Math.min(200,pinchBase*r));
+  else focusDistT=Math.max(.55,Math.min(4,pinchBase*r));
+},{capture:true});
+const untouch=e=>{touches.delete(e.pointerId); if(touches.size<2) pinch0=0;};
+addEventListener('pointerup',untouch,{capture:true});
+addEventListener('pointercancel',untouch,{capture:true});
 
 /* ============ loop ============ */
 const clock=new THREE.Clock();
@@ -1736,7 +1786,7 @@ head.addEventListener('click',()=>{
   const c=$('orgel').classList.toggle('collapsed');
   head.setAttribute('aria-expanded',!c);
 });
-if(matchMedia('(max-width:640px)').matches){ $('orgel').classList.add('collapsed'); head.setAttribute('aria-expanded','false'); }
+if(matchMedia('(max-width:820px), (max-height:820px)').matches){ $('orgel').classList.add('collapsed'); head.setAttribute('aria-expanded','false'); }
 const langSel=$('langSel');
 lang=langSel.value==='ja'?'ja':'en';
 langSel.addEventListener('change',()=>{lang=langSel.value==='ja'?'ja':'en';refreshText();});
